@@ -1,0 +1,6 @@
+# raw asset downloads (~3 GB) and intermediate build output - the game only needs js/, css/, index.html
+_downloads/
+_build/
+meshy_output/
+models/_unused/
+*.blend1

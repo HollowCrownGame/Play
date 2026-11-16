@@ -1,0 +1,129 @@
+rules_version = '2';
+// THE HOLLOW CROWN - Firestore security rules. Paste into Firebase console -> Firestore -> Rules -> Publish.
+// These rules are what actually enforce the access system (the game's JavaScript is public and can be edited
+// by anyone in their own browser, so nothing important is trusted to it):
+//   * meta/maker can be created exactly once -> the "Admin" code works for the first device only
+//   * an account can only be created by spending one use of a live access code (or by that Maker claim)
+//   * a username is chosen once and is unique
+//   * only admins (or role holders with the matching command) can ban/mute; nobody can touch the Maker
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function doc(c, id) { return /databases/$(db)/documents/$(c)/$(id); }
+    function makerUid() { return exists(doc('meta', 'maker')) ? get(doc('meta', 'maker')).data.uid : ''; }
+    function isMaker() { return signedIn() && makerUid() == uid(); }
+    function hasAccount() { return signedIn() && exists(doc('users', uid())); }
+    function me() { return get(doc('users', uid())).data; }
+    function active() { return hasAccount() && me().banUntil < request.time.toMillis(); }
+    function isAdmin() { return isMaker() || (active() && me().admin == true); }
+    function roleHas(cmd) {
+      return active() && me().role != '' && exists(doc('roles', me().role))
+        && cmd in get(doc('roles', me().role)).data.commands;
+    }
+    function can(cmd) { return isAdmin() || roleHas(cmd); }
+    function changedOnly(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    // ---------------------------------------------------------------- the Maker seat (one time, forever)
+    match /meta/maker {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'at'])
+        && request.resource.data.uid == uid();
+      allow update, delete, list: if false;
+    }
+
+    // ---------------------------------------------------------------- accounts
+    function validNew() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['uid', 'name', 'nameLower', 'admin', 'role', 'via', 'banUntil', 'banReason', 'bannedBy', 'mutedUntil', 'created'])
+        && d.uid == uid() && d.name == '' && d.nameLower == '' && d.banUntil == 0 && d.banReason == ''
+        && d.bannedBy == '' && d.mutedUntil == 0 && d.created is number && d.role is string && d.admin is bool;
+    }
+    function makerClaim() {
+      let d = request.resource.data;
+      return !exists(doc('meta', 'maker')) && getAfter(doc('meta', 'maker')).data.uid == uid()
+        && d.admin == true && d.via == 'maker' && d.role == '';
+    }
+    function codeSpent(code) {
+      let c = get(doc('codes', code)).data;
+      return exists(doc('codes', code)) && c.uses < c.maxUses
+        && getAfter(doc('codes', code)).data.uses == c.uses + 1;
+    }
+    function codeClaim() {
+      let d = request.resource.data;
+      let c = get(doc('codes', d.via)).data;
+      return d.via is string && d.via != 'maker' && codeSpent(d.via)
+        && d.admin == (c.kind == 'admin') && d.role == c.role;
+    }
+    function nameOnce() {
+      let d = request.resource.data;
+      return changedOnly(['name', 'nameLower']) && resource.data.name == ''
+        && d.name.matches('^[A-Za-z0-9 _-]{3,14}$') && d.nameLower == d.name.lower()
+        && getAfter(doc('names', d.nameLower)).data.uid == uid();
+    }
+    function codeUpgrade() {
+      let d = request.resource.data;
+      let c = get(doc('codes', d.via)).data;
+      return changedOnly(['admin', 'role', 'via']) && d.via != resource.data.via && d.via != 'maker' && codeSpent(d.via)
+        && d.admin == (resource.data.admin || c.kind == 'admin')
+        && d.role == (c.role != '' ? c.role : resource.data.role);
+    }
+    function makerUpgrade() {
+      return changedOnly(['admin', 'via']) && !exists(doc('meta', 'maker'))
+        && getAfter(doc('meta', 'maker')).data.uid == uid()
+        && request.resource.data.admin == true && request.resource.data.via == 'maker';
+    }
+    function adminEdit() {
+      return isAdmin() && resource.data.uid != makerUid()
+        && changedOnly(['role', 'admin', 'banUntil', 'banReason', 'bannedBy', 'mutedUntil'])
+        // only the Maker can grant/remove admin or punish another admin
+        && (isMaker() || (request.resource.data.admin == resource.data.admin && (resource.data.admin == false || changedOnly(['role']))));
+    }
+    function modEdit() {
+      let d = request.resource.data;
+      return active() && resource.data.admin == false && resource.data.uid != makerUid() && (
+        (can('mute') && changedOnly(['mutedUntil']) && d.mutedUntil > request.time.toMillis()) ||
+        (can('unmute') && changedOnly(['mutedUntil']) && d.mutedUntil == 0) ||
+        (can('tempban') && changedOnly(['banUntil', 'banReason', 'bannedBy']) && d.banUntil > request.time.toMillis() && d.banUntil < 9000000000000000) ||
+        (can('ban') && changedOnly(['banUntil', 'banReason', 'bannedBy']) && d.banUntil > request.time.toMillis()) ||
+        (can('unban') && changedOnly(['banUntil', 'banReason', 'bannedBy']) && d.banUntil == 0)
+      );
+    }
+    match /users/{u} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow create: if signedIn() && u == uid() && validNew() && (makerClaim() || codeClaim());
+      allow update: if (signedIn() && u == uid() && (nameOnce() || codeUpgrade() || makerUpgrade())) || adminEdit() || modEdit();
+      allow delete: if isAdmin() && resource.data.uid != makerUid();
+    }
+
+    // ---------------------------------------------------------------- unique usernames (lower-case)
+    match /names/{n} {
+      allow get: if signedIn();
+      allow create: if signedIn() && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == uid() && getAfter(doc('users', uid())).data.nameLower == n;
+      allow delete: if isAdmin();
+      allow update, list: if false;
+    }
+
+    // ---------------------------------------------------------------- access codes
+    match /codes/{c} {
+      allow get: if signedIn();
+      allow list, delete: if isAdmin();
+      allow create: if isAdmin() && c != 'Admin' && c.matches('^[A-Za-z0-9_-]{3,32}$')
+        && request.resource.data.uses == 0 && request.resource.data.kind in ['join', 'admin'];
+      allow update: if (isAdmin() && changedOnly(['maxUses']))
+        || (signedIn() && changedOnly(['uses']) && request.resource.data.uses == resource.data.uses + 1
+            && resource.data.uses < resource.data.maxUses
+            && getAfter(doc('users', uid())).data.via == c);
+    }
+
+    // ---------------------------------------------------------------- roles (sets of commands)
+    match /roles/{r} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

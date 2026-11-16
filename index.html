@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Hollow Crown</title>
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="game"></div>
+
+<!-- ============ GATE (access code -> username -> game) ============ -->
+<div id="gate" class="screen" style="z-index:40">
+  <div class="title-inner">
+    <img class="logo" src="assets/logo.svg" alt="The Hollow Crown">
+    <h1 id="gateTitle">THE HOLLOW CROWN</h1>
+    <div class="menu">
+      <div id="gateWait"><p class="sub">The eclipse stirs<span class="dots"></span></p></div>
+      <p id="gateLead" class="sub"></p>
+      <div id="gateCode" class="hidden">
+        <div class="row"><input id="inAccess" maxlength="32" placeholder="Access code" autocomplete="off" spellcheck="false"><button id="btnAccess" class="big">Enter</button></div>
+      </div>
+      <div id="gateName" class="hidden">
+        <div class="row"><input id="inUser" maxlength="14" placeholder="Your name" autocomplete="off" spellcheck="false"><button id="btnUser" class="big">Take this name</button></div>
+        <p class="small">3-14 letters, digits, spaces, - or _. Your name is saved to this device and can't be changed.</p>
+      </div>
+      <div id="gateBan" class="hidden"><p id="banText" class="sub"></p></div>
+      <div id="gateKick" class="hidden"><p id="kickText" class="sub"></p><button id="btnKickOk">Return</button></div>
+      <p id="gateErr" class="err"></p>
+    </div>
+    <p id="gateMode" class="hint"></p>
+  </div>
+</div>
+
+<!-- ============ TITLE ============ -->
+<div id="title" class="screen hidden">
+  <div class="title-inner">
+    <img class="logo" src="assets/logo.svg" alt="The Hollow Crown">
+    <h1>THE HOLLOW CROWN</h1>
+    <p class="sub">The King is still beneath the castle. He has been waiting for you.</p>
+    <div class="menu">
+      <p id="whoBadge" class="small"></p>
+      <input id="inName" type="hidden">
+      <div class="classes">
+        <button class="cls sel" data-cls="sword"><b>Oathsworn</b><span>Longsword &amp; quick feet.<br>Fast strikes, cheap dodges.</span></button>
+        <button class="cls" data-cls="greatsword"><b>Gravewarden</b><span>Greatsword &amp; heavy plate.<br>Crushing blows, more health.</span></button>
+      </div>
+      <button id="btnSolo" class="big">Begin Alone</button>
+      <div class="row">
+        <button id="btnHost">Host Co-op</button>
+        <input id="inCode" maxlength="6" placeholder="CODE">
+        <button id="btnJoin">Join</button>
+      </div>
+      <div class="row"><button id="btnSettings">Settings</button><button id="btnMaker" class="maker hidden">Maker Panel</button></div>
+      <p id="netStatus" class="small"></p>
+    </div>
+    <p class="hint">Headphones recommended. Co-op connects friends over the internet (up to 4 players).</p>
+  </div>
+</div>
+
+<!-- ============ LOBBY ============ -->
+<div id="lobby" class="screen hidden">
+  <div class="panel">
+    <h2>Gathering of Travelers</h2>
+    <p>Share this code with your friends:</p>
+    <div id="lobbyCode" class="code">------</div>
+    <ul id="lobbyList"></ul>
+    <button id="btnStart" class="big">Set Out</button>
+    <p id="lobbyWait" class="small hidden">Waiting for the host to set out...</p>
+  </div>
+</div>
+
+<!-- ============ LOADING ============ -->
+<div id="loading" class="screen hidden"><p>The eclipse settles<span class="dots"></span> <span id="loadPct"></span></p></div>
+
+<!-- ============ HUD ============ -->
+<div id="hud" class="hidden">
+  <div id="bars">
+    <div class="bar hp"><i id="hpFill"></i></div>
+    <div class="bar st"><i id="stFill"></i></div>
+    <div id="flasks"></div>
+    <div id="relics"></div>
+    <div id="ashes"></div>
+  </div>
+  <div id="compass"></div>
+  <div id="floats"></div>
+  <div id="party"></div>
+  <div id="objective"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="messages"></div>
+  <div id="subtitle"></div>
+  <div id="bossbar" class="hidden"><div class="bname" id="bossName"></div><div class="bar"><i id="bossFill"></i></div></div>
+  <div id="crosshair" class="hidden"></div>
+  <div id="lockon" class="hidden"></div>
+  <div id="area"></div>
+  <div id="chat"><div id="chatLog"></div><input id="chatIn" class="hidden" maxlength="120" placeholder="Say something..."></div>
+  <div id="clickHint">Click to look around</div>
+</div>
+
+<!-- ============ OVERLAYS ============ -->
+<div id="reader" class="overlay hidden"><div class="parchment"><h3 id="readerTitle"></h3><div id="readerText"></div><p class="close">[E] / [Esc] close</p></div></div>
+<div id="dialog" class="overlay hidden"><div class="dlg"><b id="dlgName"></b><p id="dlgText"></p><p class="close">[E] continue</p></div></div>
+<div id="death" class="overlay hidden"><h2>THE DARK TAKES YOU</h2><p id="deathSub"></p></div>
+<div id="downed" class="hidden"><h2>FALLEN</h2><p>Hold on. A friend can lift you up. <span id="bleed"></span></p></div>
+<div id="bossTitle" class="hidden"><small>Warden of the Below</small><h2>ALDRIC, THE HOLLOW KING</h2></div>
+<div id="areaTitle" class="hidden"><h2></h2></div>
+<div id="choice" class="overlay hidden">
+  <div class="panel">
+    <h2>The Seal</h2>
+    <p>Beneath your feet, something vast presses against the stone. It knows you are here.</p>
+    <button data-end="seal">Keep the prison sealed</button>
+    <button data-end="destroy">Destroy the prison</button>
+    <button data-end="crown">Take the King's place</button>
+  </div>
+</div>
+<div id="settings" class="overlay hidden" style="z-index:30"><div class="panel wide"><h2>Settings</h2><div id="settingsBody"></div><button id="btnSettingsClose" class="big">Done</button></div></div>
+<div id="fps" class="hidden"></div>
+<div id="makerPanel" class="overlay hidden" style="z-index:35"><div class="panel wide mkpanel">
+  <h2>Maker Panel</h2>
+  <div class="tabs"><button data-tab="players">Players</button><button data-tab="roles">Roles</button><button data-tab="codes">Access codes</button><button data-tab="console">Commands</button></div>
+  <p id="mkMsg" class="small"></p>
+  <div id="mkBody"></div>
+  <button id="mkClose" class="big">Close [Esc]</button>
+</div></div>
+<div id="shrineMenu" class="overlay hidden"><div class="panel wide"><h2>The Ember Remembers</h2><div id="shrineBody"></div><p class="small">[E] / [Esc] leave the ember</p></div></div>
+<div id="mapOverlay" class="overlay hidden"><div class="panel map"><h2>Veyr</h2><canvas id="mapCanvas" width="512" height="512"></canvas><p id="mapNote" class="small"></p><button id="mapClose">Close [M]</button></div></div>
+<div id="ending" class="overlay hidden"><div class="panel wide"><h2 id="endTitle"></h2><div id="endText"></div><button id="btnAgain">Return to the title</button></div></div>
+<div id="pause" class="overlay hidden">
+  <div class="panel">
+    <h2>Paused</h2>
+    <table class="keys">
+      <tr><td>WASD</td><td>Move</td><td>Shift</td><td>Sprint</td></tr>
+      <tr><td>Mouse</td><td>Look</td><td>Space</td><td>Dodge roll</td></tr>
+      <tr><td>Left click</td><td>Attack</td><td>Q</td><td>Heavy attack</td></tr>
+      <tr><td>Right click</td><td>Block</td><td>Tab</td><td>Lock on</td></tr>
+      <tr><td>E</td><td>Interact / revive</td><td>R</td><td>Drink Ember Flask</td></tr>
+      <tr><td>F</td><td>Lantern</td><td>V</td><td>First person</td></tr>
+      <tr><td>G</td><td>Ping location</td><td>Enter</td><td>Chat</td></tr>
+      <tr><td>M</td><td>Map</td><td>Shift</td><td>Sprint</td></tr>
+    </table>
+    <button id="btnResume" class="big">Resume</button>
+    <button id="btnSettings2">Settings</button>
+    <button id="btnMaker2" class="maker hidden">Maker Panel [F8]</button>
+    <button id="btnQuit">Abandon journey</button>
+  </div>
+</div>
+<div id="fade"></div>
+
+<!-- Three.js r128 classic builds (work from file://) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+
+<script src="js/models.js"></script>
+<script src="js/textures.js"></script>
+<script src="js/sounds.js"></script>
+<script src="js/story.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/world.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/net.js"></script>
+<script src="js/game.js"></script>
+<script src="js/online.js"></script>
+<script src="js/access.js"></script>
+</body>
+</html>
