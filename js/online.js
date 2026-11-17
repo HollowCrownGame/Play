@@ -112,7 +112,8 @@
 
   let B;
   O.init = async function () {
-    if (window.HC_FIREBASE && window.firebase) { B = firebaseBackend(window.HC_FIREBASE); O.mode = 'firebase'; }
+    const devLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).has('local');
+    if (window.HC_FIREBASE && window.firebase && !devLocal) { B = firebaseBackend(window.HC_FIREBASE); O.mode = 'firebase'; }
     else { B = localBackend(); O.mode = 'local'; }
     O.uid = await B.init();
     O.ready = true;

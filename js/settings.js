@@ -10,7 +10,14 @@
     ultra: { renderScale: '1', viewDist: 1.35, vegetation: 'high', terrain: 'high', bloom: true, grain: true, lights: 8, animLod: false, textures: 'full', lighting: 'full', particles: true },
   };
   S.v = Object.assign({ preset: 'medium', showFps: false, fov: 65, sens: 1, vMaster: 0.9, vMusic: 0.55, vSfx: 1.0 }, S.PRESETS.medium);
-  try { Object.assign(S.v, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { }
+  // first run: phones/tablets start on Potato, Chromebooks on Low (both can be changed in Settings)
+  let saved = null; try { saved = localStorage.getItem(KEY); } catch (e) { }
+  if (!saved) {
+    const crOS = /CrOS/.test(navigator.userAgent), phone = !crOS && matchMedia('(pointer: coarse)').matches;
+    const p = phone ? 'potato' : crOS ? 'low' : null;
+    if (p) { Object.assign(S.v, S.PRESETS[p]); S.v.preset = p; }
+  }
+  try { Object.assign(S.v, JSON.parse(saved || '{}')); } catch (e) { }
   S.save = () => { try { localStorage.setItem(KEY, JSON.stringify(S.v)); } catch (e) { } };
   // settings that only take effect when the world is (re)built
   S.RESTART = new Set(['vegetation', 'terrain', 'bloom', 'lights', 'textures', 'lighting']);

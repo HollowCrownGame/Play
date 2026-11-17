@@ -385,6 +385,14 @@
   // ================================================================ input
   const keys = {}; const mouse = { l: false, r: false }; let locked = false;
   const canvasEl = () => renderer && renderer.domElement;
+  // used by js/touch.js (phone / tablet / touchscreen Chromebook controls)
+  G.input = {
+    keys, mouse, stick: { x: 0, y: 0 },
+    attack: kind => tryAttack(kind),
+    look(dx, dy) { if (!me) return; me.camYaw -= dx * 0.006 * opt.sens; me.camPitch = Math.max(-1.0, Math.min(1.1, me.camPitch + dy * 0.005 * opt.sens)); },
+    pause() { if (G.started && !G.ended && !overlayOpen()) show('pause'); },
+    overlayOpen: () => overlayOpen(),
+  };
   addEventListener('keydown', e => {
     if (!G.started) return;
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && e.target !== $('chatIn')) return;   // typing in a panel
@@ -400,6 +408,7 @@
     if (e.code === 'Tab') { e.preventDefault(); toggleLock(); }
     if (e.code === 'Space') { e.preventDefault(); tryRoll(); }
     if (e.code === 'KeyQ') tryAttack('heavy');
+    if (e.code === 'KeyJ' && !e.repeat) tryAttack('attack');    // keyboard-only attack (Chromebook touchpads)
     if (e.code === 'KeyR') tryDrink();
     if (e.code === 'KeyE') tryInteract();
     if (e.code === 'KeyF') { me.lantern = !me.lantern; me.avatar.setLantern(me.lantern); }
@@ -472,7 +481,7 @@
   }
   function tryDrink() { if (!me || busy() || me.downed || me.flasks <= 0) return; me.flasks--; startAct('drink', 1.15); me.healed = false; }
   function faceTarget() { const t = me.lock; if (t) me.yaw = Math.atan2(t.pos.x - me.pos.x, t.pos.z - me.pos.z); }
-  const moveInput = () => new V3((keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), 0, (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0));
+  const moveInput = () => new V3((keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) + G.input.stick.x, 0, (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0) + G.input.stick.y);
   function moveDir() {
     const i = moveInput(); if (i.lengthSq() === 0) return i;
     const f = new V3(Math.sin(me.camYaw), 0, Math.cos(me.camYaw)), r = new V3(-Math.cos(me.camYaw), 0, Math.sin(me.camYaw));
@@ -1036,7 +1045,7 @@
         else if (me.actT >= 2.4) { event({ t: 'revive', target: t.id, by: me.name }); startAct('idle', 0); G.reviveTarget = null; }
       }
     } else if (me.act !== 'cine') {
-      const blocking = mouse.r && locked && !inputLocked;
+      const blocking = ((mouse.r && (locked || G.touch)) || keys.KeyK) && !inputLocked;   // K = keyboard block
       const sprint = keys.ShiftLeft && dir.lengthSq() > 0 && me.st > 0 && !blocking;
       speed = c.speed * (blocking ? 0.45 : sprint ? 1.65 : 1) * (me.speedMul || 1);
       if (sprint) { me.st -= dt * 15; me.stDelay = 0.5; }
@@ -1082,7 +1091,7 @@
       me.camYaw += HC.angDiff(me.camYaw, want) * Math.min(1, dt * 6);
       me.camPitch = HC.damp(me.camPitch, me.lock.boss ? 0.02 : 0.18, 4, dt);
     }
-    if (!locked) { if (keys.ArrowLeft) me.camYaw += dt * 2; if (keys.ArrowRight) me.camYaw -= dt * 2; if (keys.ArrowUp) me.camPitch -= dt; if (keys.ArrowDown) me.camPitch += dt; }
+    { if (keys.ArrowLeft) me.camYaw += dt * 2; if (keys.ArrowRight) me.camYaw -= dt * 2; if (keys.ArrowUp) me.camPitch -= dt; if (keys.ArrowDown) me.camPitch += dt; }
     const cp = Math.cos(me.camPitch), f = new V3(Math.sin(me.camYaw) * cp, -Math.sin(me.camPitch), Math.cos(me.camYaw) * cp), right = new V3(-Math.cos(me.camYaw), 0, Math.sin(me.camYaw));
     if (me.fp && !me.downed) {
       const pos = me.pos.clone().add(new V3(0, 1.62, 0)).addScaledVector(new V3(Math.sin(me.camYaw), 0, Math.cos(me.camYaw)), 0.18);
