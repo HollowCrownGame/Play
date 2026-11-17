@@ -252,15 +252,19 @@
       else if (m.map && m.map !== W.tex.grunge) { const a = texAvg(m.map); if (a) col.multiply(a); }
       else if (m.map === W.tex.grunge) col.multiplyScalar(0.85);
     }
+    // glow (emissive) maps: e.g. white emissive + a map that is black except the eyes. Without the map that white
+    // would light the whole body, so in flat mode the glow colour is scaled by the map's average instead.
+    const emi = m.emissive ? m.emissive.clone() : new THREE.Color(0);
+    if (flat && m.emissiveMap) { const a = texAvg(m.emissiveMap); emi.multiply(a || new THREE.Color(0)); }
     let out = m;
     if (simple && (m.isMeshStandardMaterial || m.isMeshPhongMaterial)) {
-      out = new THREE.MeshLambertMaterial({ color: col, map: flat ? null : m.map, emissive: m.emissive ? m.emissive.clone() : new THREE.Color(0), emissiveIntensity: m.emissiveIntensity,
+      out = new THREE.MeshLambertMaterial({ color: col, map: flat ? null : m.map, emissive: emi, emissiveMap: flat ? null : m.emissiveMap, emissiveIntensity: m.emissiveIntensity,
         transparent: m.transparent, opacity: m.opacity, alphaTest: m.alphaTest, side: m.side, vertexColors: m.vertexColors, skinning: m.skinning, fog: m.fog });
       out.name = m.name; out.toneMapped = m.toneMapped; out.userData = Object.assign({}, m.userData);
       if (!flat && (m.userData.tpKey || m.userData.keepShader)) out.onBeforeCompile = m.onBeforeCompile;
     } else if (flat) {
-      m.color.copy(col);
-      ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'bumpMap'].forEach(k => { if (k in m) m[k] = null; });
+      m.color.copy(col); if (m.emissive) m.emissive.copy(emi);
+      ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'bumpMap', 'emissiveMap'].forEach(k => { if (k in m) m[k] = null; });
     }
     if (flat) { out.map = null; out.onBeforeCompile = function () { }; if (out.alphaTest) out.alphaTest = 0; }
     out.userData.low = true; out.needsUpdate = true;

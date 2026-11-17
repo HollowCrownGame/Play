@@ -3,6 +3,7 @@
   const S = HC.Settings = {};
   // phones, tablets, Chromebooks and devices reporting <= 4 GB RAM get the memory-saving paths
   HC.lowMem = /[?&]lowmem\b/.test(location.search) || matchMedia('(pointer: coarse)').matches || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent) || (navigator.deviceMemory || 8) <= 4;
+  HC.phoneScreen = matchMedia('(pointer: coarse)').matches && (window.devicePixelRatio || 1) >= 2;
   // Load breadcrumbs: every loading stage is written to localStorage. If the browser kills the tab (out of memory)
   // the crumb survives the reload, so the next visit knows where it died and switches to safe mode.
   const CRUMB = 'hc_loadcrumb_v1';
@@ -13,6 +14,7 @@
   HC.loadOk = () => { try { localStorage.removeItem(CRUMB); } catch (e) { } };
   const KEY = 'hc_settings_v1';
   S.PRESETS = {
+    phone: { renderScale: 'auto', viewDist: 0.6, vegetation: 'off', terrain: 'low', bloom: false, grain: false, lights: 2, animLod: true, textures: 'full', lighting: 'simple', particles: false },
     potato: { renderScale: '0.55', viewDist: 0.5, vegetation: 'off', terrain: 'low', bloom: false, grain: false, lights: 2, animLod: true, textures: 'flat', lighting: 'simple', particles: false },
     low: { renderScale: '0.7', viewDist: 0.65, vegetation: 'off', terrain: 'low', bloom: false, grain: false, lights: 4, animLod: true, textures: 'full', lighting: 'simple', particles: true },
     medium: { renderScale: 'auto', viewDist: 0.85, vegetation: 'low', terrain: 'medium', bloom: true, grain: true, lights: 6, animLod: true, textures: 'full', lighting: 'full', particles: true },
@@ -24,10 +26,15 @@
   let saved = null; try { saved = localStorage.getItem(KEY); } catch (e) { }
   if (!saved) {
     const crOS = /CrOS/.test(navigator.userAgent), phone = !crOS && matchMedia('(pointer: coarse)').matches;
-    const p = phone ? 'potato' : crOS ? 'low' : null;
+    const p = phone ? 'phone' : crOS ? 'low' : null;
     if (p) { Object.assign(S.v, S.PRESETS[p]); S.v.preset = p; }
   }
   try { Object.assign(S.v, JSON.parse(saved || '{}')); } catch (e) { }
+  // one-time move for phones that were saved on the old (much too blurry) Potato default
+  if (matchMedia('(pointer: coarse)').matches && !/CrOS/.test(navigator.userAgent) && !S.v.phoneFix1) {
+    if (!saved || S.v.preset === 'potato') { Object.assign(S.v, S.PRESETS.phone); S.v.preset = 'phone'; }
+    S.v.phoneFix1 = true; try { localStorage.setItem(KEY, JSON.stringify(S.v)); } catch (e) { }
+  }
   // the last load crashed: force the lightest settings (not saved, so Settings still shows the player's choice)
   if (HC.safeLevel) Object.assign(S.v, S.PRESETS.potato, { renderScale: '0.4', viewDist: 0.5 });
   S.save = () => { try { localStorage.setItem(KEY, JSON.stringify(S.v)); } catch (e) { } };
@@ -37,7 +44,7 @@
   S.TERRAIN = { low: 200, medium: 280, high: 350 };
 
   const FIELDS = [
-    ['preset', 'Quality preset', 'select', { potato: 'Potato (fastest)', low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra', custom: 'Custom' }],
+    ['preset', 'Quality preset', 'select', { phone: 'Phone / tablet', potato: 'Potato (fastest)', low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra', custom: 'Custom' }],
     ['renderScale', 'Render resolution', 'select', { auto: 'Automatic (holds the frame rate)', '0.4': '40%', '0.55': '55%', '0.7': '70%', '0.85': '85%', '1': '100%', '1.25': '125%' }],
     ['textures', 'Textures', 'select', { full: 'Full', flat: 'Off (flat colours)' }],
     ['lighting', 'Lighting', 'select', { full: 'Full (physically based)', simple: 'Simple (faster)' }],

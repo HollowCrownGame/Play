@@ -37,7 +37,7 @@
       const done = () => { n++; step(); setTimeout(next, 0); };
       if (!buf) { done(); return; }
       loader.parse(buf.buffer, '', g => {
-        if (HC.lowMem) shrinkTextures(g.scene, HC.safeLevel ? 128 : 256);
+        if (HC.lowMem) shrinkTextures(g.scene, [512, 256, 128][HC.safeLevel] || 128);
         HC.assets[name] = g.scene;
         if (name === 'anims') { HC.CLIPS = {}; g.animations.forEach(c => { HC.CLIPS[c.name] = c; }); }
         done();
@@ -80,7 +80,7 @@
     scene.add(new THREE.AmbientLight(0x202024, 0.25));
     for (let i = 0; i < (SV().lights || 6); i++) { const l = new THREE.PointLight(0xffa050, 0, 10, 2); scene.add(l); lightPool.push(l); }
     camera.fov = SV().fov;
-    DR.scale = SV().renderScale === 'auto' ? Math.min(window.devicePixelRatio, 1.0) : parseFloat(SV().renderScale);
+    DR.scale = SV().renderScale === 'auto' ? Math.min(window.devicePixelRatio, HC.phoneScreen ? 1.5 : 1.0) : parseFloat(SV().renderScale);
     renderer.setPixelRatio(DR.scale);
     if (opt.bloom && THREE.EffectComposer && THREE.UnrealBloomPass) {
       const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: renderer.capabilities.isWebGL2 ? THREE.HalfFloatType : THREE.UnsignedByteType });
@@ -994,8 +994,10 @@
     if (DR.acc < 2) return;
     const avg = DR.acc / DR.n; DR.acc = 0; DR.n = 0;
     let s = DR.scale;
-    if (avg > 1 / 40 && s > 0.55) s = Math.max(0.55, s - 0.1);
-    else if (avg < 1 / 58 && s < Math.min(window.devicePixelRatio, 1.25)) s = Math.min(Math.min(window.devicePixelRatio, 1.25), s + 0.05);
+    // phones have 2-3x pixel-dense screens: let automatic resolution climb to 2x there, 1.25x elsewhere
+    const top = Math.min(window.devicePixelRatio, HC.phoneScreen ? 2 : 1.25), bottom = HC.phoneScreen ? 0.9 : 0.55;
+    if (avg > 1 / 40 && s > bottom) s = Math.max(bottom, s - 0.1);
+    else if (avg < 1 / 55 && s < top) s = Math.min(top, s + 0.1);
     if (Math.abs(s - DR.scale) > 0.01) {
       DR.scale = s; renderer.setPixelRatio(s); renderer.setSize(innerWidth, innerHeight);
       if (composer) { composer.setPixelRatio ? composer.setPixelRatio(s) : 0; composer.setSize(innerWidth, innerHeight); }

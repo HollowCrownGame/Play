@@ -26,6 +26,25 @@
     decodeAll();
   };
   A.resume = () => { if (ctx && ctx.state !== 'running') ctx.resume(); };
+
+  // ---- iPhone / iPad: Safari keeps Web Audio silent until a tap resumes it, and the ring/silent switch mutes it
+  // unless the page's audio session is "playback" (iOS 16.4+), or an <audio> element has played (older iOS).
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { }
+  function silentWav() {
+    const n = 2205, b = new DataView(new ArrayBuffer(44 + n * 2)), s = (o, t) => [...t].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
+    s(0, 'RIFF'); b.setUint32(4, 36 + n * 2, true); s(8, 'WAVEfmt '); b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
+    b.setUint32(24, 22050, true); b.setUint32(28, 44100, true); b.setUint16(32, 2, true); b.setUint16(34, 16, true); s(36, 'data'); b.setUint32(40, n * 2, true);
+    return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+  }
+  let unlocked = false;
+  function unlock() {
+    if (ctx && ctx.state !== 'running') ctx.resume();
+    if (unlocked) return; unlocked = true;
+    try { const el = new Audio(silentWav()); el.setAttribute('playsinline', ''); const p = el.play(); if (p && p.catch) p.catch(() => { unlocked = false; }); } catch (e) { unlocked = false; }
+  }
+  ['touchend', 'pointerup', 'click', 'keydown'].forEach(t => addEventListener(t, unlock, { capture: true, passive: true }));
+  // coming back to the tab (iOS suspends audio in the background)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && ctx.state !== 'running') ctx.resume(); });
   A.stats = () => ({ state: ctx && ctx.state, events: Object.keys(buffers).length, decoded: Object.values(buffers).reduce((s, l) => s + l.length, 0), beds: Object.keys(beds) });
   A.setVolumes = function (v) {
     Object.assign(vol, v);
