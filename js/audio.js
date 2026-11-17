@@ -9,7 +9,9 @@
 
   A.init = function () {
     if (ctx) return;
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // phones / Chromebooks / low-RAM devices: run audio at 22 kHz - decoded sound takes half the memory
+    const AC = window.AudioContext || window.webkitAudioContext;
+    try { ctx = HC.lowMem ? new AC({ sampleRate: 22050 }) : new AC(); } catch (e) { ctx = new AC(); }
     comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
     master = ctx.createGain(); master.gain.value = vol.master;
     sfxBus = ctx.createGain(); sfxBus.gain.value = vol.sfx; musBus = ctx.createGain(); musBus.gain.value = vol.music;
@@ -33,16 +35,25 @@
   };
   A.master = v => { if (ready) master.gain.setTargetAtTime(v * vol.master, ctx.currentTime, 0.8); };
 
-  function decodeAll() {
+  // Short effects are decoded up front, a few at a time. Ambience/music beds (minutes long - hundreds of MB once
+  // decoded) are only decoded while they are actually wanted, and released again after they fade out.
+  const isBed = ev => /^(amb|mus)_/.test(ev);
+  const toBytes = uri => { const bin = atob(uri.slice(uri.indexOf(',') + 1)), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); return arr.buffer; };
+  const decode = uri => new Promise(res => { try { const p = ctx.decodeAudioData(toBytes(uri), res, () => res(null)); if (p && p.catch) p.catch(() => res(null)); } catch (e) { res(null); } });
+  async function decodeAll() {
     const lib = window.HC_SFX || {};
-    Object.entries(lib).forEach(([ev, list]) => {
+    for (const [ev, list] of Object.entries(lib)) {
+      if (isBed(ev)) continue;
       buffers[ev] = [];
-      list.forEach(uri => {
-        const bin = atob(uri.slice(uri.indexOf(',') + 1)), arr = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-        ctx.decodeAudioData(arr.buffer).then(b => { buffers[ev].push(b); if (/^(amb|mus)_/.test(ev)) refreshBeds(); }).catch(() => { });
-      });
-    });
+      for (const uri of list) { const b = await decode(uri); if (b) buffers[ev].push(b); }
+    }
+  }
+  const bedLoading = {};
+  function loadBed(ev) {
+    if (buffers[ev] || bedLoading[ev]) return;
+    const uri = ((window.HC_SFX || {})[ev] || [])[0]; if (!uri) return;
+    bedLoading[ev] = true;
+    decode(uri).then(b => { delete bedLoading[ev]; if (b) { buffers[ev] = [b]; refreshBeds(); } });
   }
 
   A.setListener = function (p, f) {
@@ -132,7 +143,7 @@
   let bedZone = 'silent', bossOn = false;
   function bed(ev) {
     if (beds[ev]) return beds[ev];
-    const list = buffers[ev]; if (!list || !list.length) return null;
+    const list = buffers[ev]; if (!list || !list.length) { loadBed(ev); return null; }
     const s = ctx.createBufferSource(); s.buffer = list[0]; s.loop = true;
     const g = ctx.createGain(); g.gain.value = 0;
     s.connect(g); g.connect(/^mus_/.test(ev) ? musBus : sfxBus); s.start(0, Math.random() * Math.max(0, list[0].duration - 1));
@@ -143,7 +154,13 @@
     const want = Object.assign({}, BED_SET[bedZone] || {});
     if (bossOn) { Object.keys(want).forEach(k => { if (/^mus_/.test(k)) want[k] = 0; }); want.mus_boss = 0.8; }
     const all = new Set([...Object.keys(beds), ...Object.keys(want)]);
-    all.forEach(ev => { const b = (want[ev] ? bed(ev) : beds[ev]); if (b) b.g.gain.setTargetAtTime(want[ev] || 0, ctx.currentTime, 2.0); });
+    all.forEach(ev => {
+      const b = (want[ev] ? bed(ev) : beds[ev]); if (!b) return;
+      b.g.gain.setTargetAtTime(want[ev] || 0, ctx.currentTime, 2.0);
+      clearTimeout(b.drop);
+      // once a bed has faded out, stop it and free its decoded audio (it is decoded again if it comes back)
+      if (!want[ev]) b.drop = setTimeout(() => { try { b.s.stop(); } catch (e) { } b.s.disconnect(); delete beds[ev]; delete buffers[ev]; }, 12000);
+    });
   }
   A.setAmbience = function (zone) {
     if (!ready || bedZone === zone) return;

@@ -1,6 +1,8 @@
 // THE HOLLOW CROWN - graphics / audio / control settings with presets, persisted in localStorage.
 (function () {
   const S = HC.Settings = {};
+  // phones, tablets, Chromebooks and devices reporting <= 4 GB RAM get the memory-saving paths
+  HC.lowMem = matchMedia('(pointer: coarse)').matches || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent) || (navigator.deviceMemory || 8) <= 4;
   const KEY = 'hc_settings_v1';
   S.PRESETS = {
     potato: { renderScale: '0.55', viewDist: 0.5, vegetation: 'off', terrain: 'low', bloom: false, grain: false, lights: 2, animLod: true, textures: 'flat', lighting: 'simple', particles: false },

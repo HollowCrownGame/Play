@@ -21,15 +21,26 @@
     }
     HC.assets = {}; let n = 0;
     const step = () => { $('loadPct').textContent = Math.round(n / names.length * 100) + '%'; };
-    names.forEach(name => {
-      const bin = atob(HC_MODELS[name]), buf = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    // one model at a time, dropping each base64 copy once parsed - parsing all 69 at once spiked memory
+    // past what phones allow a tab (the page reloaded part-way through loading)
+    const next = () => {
+      if (n >= names.length) { cb(); return; }
+      const name = names[n];
+      let buf = null;
+      try {
+        const bin = atob(HC_MODELS[name]); buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+      } catch (e) { console.error('model', name, e); }
+      delete HC_MODELS[name];
+      const done = () => { n++; step(); setTimeout(next, 0); };
+      if (!buf) { done(); return; }
       loader.parse(buf.buffer, '', g => {
         HC.assets[name] = g.scene;
         if (name === 'anims') { HC.CLIPS = {}; g.animations.forEach(c => { HC.CLIPS[c.name] = c; }); }
-        n++; step(); if (n === names.length) cb();
-      }, e => { console.error('model', name, e); n++; if (n === names.length) cb(); });
-    });
+        done();
+      }, e => { console.error('model', name, e); done(); });
+    };
+    next();
   }
   function initRenderer() {
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
