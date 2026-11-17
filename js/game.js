@@ -472,24 +472,35 @@
     if (e.code === 'Enter') { show('chatIn'); $('chatIn').focus(); unlockPointer(); e.preventDefault(); }
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
+  // Clicks on the game view always act (attack / block), whether or not the browser granted mouse capture;
+  // a click without capture also asks for it. Previously a click only requested capture, so if the browser
+  // refused (or was slow), left click did nothing at all.
   addEventListener('mousedown', e => {
-    if (!G.started || overlayOpen()) return;
-    if (!locked && e.target === canvasEl()) { lock(); return; }
-    if (!locked) return;
+    if (!G.started || overlayOpen() || G.touch) return;
+    if (!locked && e.target !== canvasEl()) return;          // clicks on HUD / chat
+    if (!locked) lock();
     if (e.button === 0) { mouse.l = true; tryAttack('attack'); }
     if (e.button === 2) mouse.r = true;
   });
   addEventListener('mouseup', e => { if (e.button === 0) mouse.l = false; if (e.button === 2) mouse.r = false; });
   addEventListener('contextmenu', e => e.preventDefault());
   addEventListener('mousemove', e => {
-    if (!locked || !me) return;
+    if (!me || !G.started) return;
+    // captured: mouse looks freely. Not captured (browser refused): drag with a button held to look.
+    if (!locked && !(G.lockFailed && e.buttons)) return;
     me.camYaw -= e.movementX * 0.0024 * opt.sens;
     me.camPitch = Math.max(-1.0, Math.min(1.1, me.camPitch + e.movementY * 0.0022 * opt.sens));
+  });
+  document.addEventListener('pointerlockerror', () => {
+    if (!G.started) return;
+    const first = !G.lockWarned; G.lockFailed = true; G.lockWarned = true;
+    if (first) message('Your browser blocked mouse capture: hold a mouse button and drag to look around.');
   });
   function lock() { const c = canvasEl(); if (c && c.requestPointerLock) { try { const r = c.requestPointerLock(); if (r && r.catch) r.catch(() => { }); } catch (e) { } } }
   function unlockPointer() { if (document.exitPointerLock) document.exitPointerLock(); }
   document.addEventListener('pointerlockchange', () => {
     locked = document.pointerLockElement === canvasEl();
+    if (locked) G.lockFailed = false;
     document.body.classList.toggle('unlocked', !locked && G.started);
     if (!locked && G.started && !overlayOpen() && document.activeElement !== $('chatIn') && !G.ended && $('mapOverlay').classList.contains('hidden')) show('pause');
   });
@@ -1109,7 +1120,7 @@
         else if (me.actT >= 2.4) { event({ t: 'revive', target: t.id, by: me.name }); startAct('idle', 0); G.reviveTarget = null; }
       }
     } else if (me.act !== 'cine') {
-      const blocking = ((mouse.r && (locked || G.touch)) || keys.KeyK) && !inputLocked;   // K = keyboard block
+      const blocking = (mouse.r || keys.KeyK) && !inputLocked;   // right mouse / touch Block button / K key
       // touch players sprint by pushing the stick: stop at 25 stamina so there is always enough left to attack or roll
       const sprint = keys.ShiftLeft && dir.lengthSq() > 0 && me.st > (G.touch ? 25 : 0) && !blocking;
       speed = c.speed * (blocking ? 0.45 : sprint ? 1.65 : 1) * (me.speedMul || 1);

@@ -4,8 +4,14 @@
 (function () {
   const G = () => HC.Game;
   const $ = id => document.getElementById(id);
-  const coarse = matchMedia('(pointer: coarse)').matches;
-  let wantTouch = coarse, ui = null, stick = null, look = null;
+  // start in touch mode only on touch-only devices; laptops / Chromebooks with a touchscreen AND a touchpad or
+  // mouse start in mouse mode and switch whenever the other kind of input is used
+  const coarse = matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+  let wantTouch = coarse, ui = null, stick = null, look = null, mouseMode = !coarse;
+  addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && (e.movementX || e.movementY)) useMouse(); }, { capture: true, passive: true });
+  addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') useMouse(); else if (e.pointerType === 'touch') useTouch(); }, { capture: true, passive: true });
+  function useMouse() { if (mouseMode) return; mouseMode = true; if (G()) G().touch = false; if (stick || look) end0(); step(); }
+  function useTouch() { wantTouch = true; if (!mouseMode) return; mouseMode = false; if (G() && ui) G().touch = true; step(); }
 
   const key = (code, down) => dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup',
     { code, key: code === 'Enter' ? 'Enter' : code === 'Space' ? ' ' : code.replace('Key', '').toLowerCase(), bubbles: true }));
@@ -79,7 +85,7 @@
     G().touch = true; document.body.classList.add('touch');
     build();
   }
-  addEventListener('touchstart', () => { wantTouch = true; }, { passive: true, capture: true });
+  addEventListener('touchstart', () => useTouch(), { passive: true, capture: true });
 
   // tap to close letters / dialogue / the ember menu (they normally close with E)
   ['reader', 'dialog', 'shrineMenu'].forEach(id => $(id).addEventListener('click', e => {
@@ -98,14 +104,16 @@
   // show the controls only while actually playing
   function step() {
     const g = G();
-    if (g && g.started && wantTouch && !g.touch) enable();
+    if (g && g.started && wantTouch && !mouseMode && !ui) enable();
     if (ui) {
-      const hide = !g.started || g.ended || g.input.overlayOpen() || !$('mapOverlay').classList.contains('hidden') || document.activeElement === $('chatIn') || !$('gate').classList.contains('hidden');
+      g.touch = !mouseMode;
+      document.body.classList.toggle('touch', !mouseMode);
+      const hide = mouseMode || !g.started || g.ended || g.input.overlayOpen() || !$('mapOverlay').classList.contains('hidden') || document.activeElement === $('chatIn') || !$('gate').classList.contains('hidden');
       ui.classList.toggle('hidden', hide);
       if (hide && stick) end0();
     }
   }
   (function tick() { step(); requestAnimationFrame(tick); })();
-  HC.Touch = { enable: () => { wantTouch = true; step(); }, step };
+  HC.Touch = { enable: () => { wantTouch = true; mouseMode = false; step(); }, step, mode: () => (mouseMode ? 'mouse' : 'touch') };
   function end0() { stick = null; look = null; const inp = G().input; inp.stick.x = inp.stick.y = 0; inp.keys.ShiftLeft = false; inp.mouse.r = false; $('tStick').classList.add('hidden'); }
 })();
