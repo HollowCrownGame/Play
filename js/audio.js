@@ -187,6 +187,15 @@
       sample('step', d, t + 0.5, 0.95, 0.7);
       if (opts.armor) sample('step_armor', d, t + 0.2, 0.85, 0.5);
     }
+    if (name === 'shot') {            // bow twang / crossbow clack / staff fire-cast
+      if (opts.kind === 'staff') { sample('fire', d, t, 1.3, opts.heavy ? 1.1 : 0.7); PROC.whoosh(d, t, opts.heavy ? 0.5 : 0.3, 700, 2400, opts.heavy ? 0.4 : 0.28); }
+      else {
+        const cb = opts.kind === 'crossbow';
+        PROC.whoosh(d, t + 0.01, 0.26, 3200, 1200, cb ? 0.3 : 0.24);
+        PROC.thud(d, t, cb ? 0.4 : 0.22);
+        sample(cb ? 'clang' : 'swing', d, t, cb ? 1.8 : 1.5, cb ? 0.25 : 0.55);
+      }
+    }
     if (name === 'bell') sample('bellhit', d, t, 0.5, 0.6);
     (LAYER[name] || []).forEach(l => PROC[l](d, t));
     if (name === 'step' && opts.wet) PROC.splash(d, t);

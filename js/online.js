@@ -54,6 +54,8 @@
       update: (p, patch) => doc(p).update(patch),
       set: (p, v) => doc(p).set(v),
       del: p => doc(p).delete(),
+      add: async (c, v) => (await col(c).add(v)).id,
+      watchQuery(c, field, val, cb) { return col(c).where(field, '==', val).onSnapshot(q => cb(q.docs.map(data)), e => console.warn('watch', c, e)); },
     };
     return B;
   }
@@ -107,6 +109,8 @@
       async update(p, patch) { const d = load(); const [c, id] = at(d, p); if (!c[id]) throw err('missing'); Object.assign(c[id], patch); save(d); fire(); },
       async set(p, v) { const d = load(); const [c, id] = at(d, p); c[id] = v; save(d); fire(); },
       async del(p) { const d = load(); const [c, id] = at(d, p); delete c[id]; save(d); fire(); },
+      async add(c, v) { const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8); await this.set(c + '/' + id, v); return id; },
+      watchQuery(c, field, val, cb) { const f = async () => cb((await this.list(c)).filter(x => x[field] === val)); listeners.add(f); f(); return () => listeners.delete(f); },
     };
   }
 
@@ -176,4 +180,19 @@
   };
   O.setCodeUses = (code, maxUses) => B.update('codes/' + code, { maxUses: Math.max(0, maxUses | 0) });
   O.deleteCode = code => B.del('codes/' + code);
+
+  // ------------------------------------------------------------------ satchels & the Trading Post
+  O.loadInv = () => B.get('inv/' + O.uid);
+  O.saveInv = v => B.set('inv/' + O.uid, v);
+  O.getInv = uid => B.get('inv/' + uid);
+  O.createTrade = t => B.add('trades', t);
+  O.tradeStatus = (id, status) => B.update('trades/' + id, { status, at: Date.now() });
+  // trades you sent + trades sent to you, merged into one live list
+  O.watchTrades = function (cb) {
+    let a = [], b = [];
+    const emit = () => { const m = new Map(); a.concat(b).forEach(t => m.set(t.id, t)); cb([...m.values()]); };
+    const u1 = B.watchQuery('trades', 'from', O.uid, l => { a = l; emit(); });
+    const u2 = B.watchQuery('trades', 'to', O.uid, l => { b = l; emit(); });
+    return () => { u1 && u1(); u2 && u2(); };
+  };
 })();

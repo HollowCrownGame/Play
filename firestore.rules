@@ -125,5 +125,31 @@ service cloud.firestore {
       allow read: if signedIn();
       allow write: if isAdmin();
     }
+
+    // ---------------------------------------------------------------- satchels (inventories)
+    // anyone signed in can look (the Trading Post shows a player's items); only the owner (not banned) or an admin can change it
+    match /inv/{u} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow write: if (active() && u == uid()) || isAdmin();
+    }
+
+    // ---------------------------------------------------------------- the Trading Post
+    //   open -> accepted | declined (by the receiver) | cancelled (by the sender)
+    //   accepted -> done, declined/cancelled -> returned (the sender's game collects the items)
+    match /trades/{t} {
+      function party() { return signedIn() && (resource.data.from == uid() || resource.data.to == uid()); }
+      function moveTo(s) { return changedOnly(['status', 'at']) && request.resource.data.status == s; }
+      allow get, list: if party() || isAdmin();
+      allow create: if active() && request.resource.data.from == uid() && request.resource.data.to != uid()
+        && request.resource.data.status == 'open' && request.resource.data.give is list && request.resource.data.want is list
+        && request.resource.data.give.size() <= 40 && request.resource.data.want.size() <= 40;
+      allow update: if signedIn() && (
+        (resource.data.to == uid() && active() && resource.data.status == 'open' && (moveTo('accepted') || moveTo('declined'))) ||
+        (resource.data.from == uid() && resource.data.status == 'open' && moveTo('cancelled')) ||
+        (resource.data.from == uid() && resource.data.status == 'accepted' && moveTo('done')) ||
+        (resource.data.from == uid() && resource.data.status in ['declined', 'cancelled'] && moveTo('returned')));
+      allow delete: if isAdmin();
+    }
   }
 }

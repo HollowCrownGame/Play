@@ -228,6 +228,21 @@
     greatsword: { name: 'Gravewarden', weapon: 'greatsword', hp: 140, light: { dmg: 40, poise: 40, range: 3.2, arc: 2.4, dur: 0.9, hit: 0.5, st: 22 },
       heavy: { dmg: 74, poise: 90, range: 3.4, arc: 2.0, dur: 1.4, hit: 0.88, st: 40 }, rollCost: 24, speed: 4.3 },
   };
+  // weapon styles: how each kind of weapon swings (stats are scaled by the item's rarity in js/items.js).
+  // Melee: light/heavy = { dmg, poise, range, arc, dur, hit, st }. Ranged: + proj, speed, n (spread), ammo, grav.
+  const SW_CLIPS = ['Sword_Regular_A', 'Sword_Regular_B', 'Sword_Regular_C'];
+  HC.STYLES = {
+    sword: { light: { dmg: 24, poise: 18, range: 2.5, arc: 1.9, dur: 0.62, hit: 0.32, st: 14 }, heavy: { dmg: 44, poise: 45, range: 2.7, arc: 1.4, dur: 1.0, hit: 0.58, st: 30 }, clips: SW_CLIPS, heavyClip: 'Sword_Dash' },
+    greatsword: { light: { dmg: 40, poise: 40, range: 3.2, arc: 2.4, dur: 0.9, hit: 0.5, st: 22 }, heavy: { dmg: 74, poise: 90, range: 3.4, arc: 2.0, dur: 1.4, hit: 0.88, st: 40 }, clips: SW_CLIPS, heavyClip: 'Sword_Dash', armor: true },
+    dagger: { light: { dmg: 15, poise: 8, range: 2.0, arc: 1.6, dur: 0.42, hit: 0.2, st: 8 }, heavy: { dmg: 34, poise: 22, range: 2.3, arc: 1.2, dur: 0.75, hit: 0.38, st: 18 }, clips: ['Sword_Regular_A', 'Punch_Jab', 'Punch_Cross'], heavyClip: 'Sword_Dash' },
+    axe: { light: { dmg: 30, poise: 26, range: 2.5, arc: 1.9, dur: 0.72, hit: 0.38, st: 17 }, heavy: { dmg: 58, poise: 60, range: 2.7, arc: 1.6, dur: 1.1, hit: 0.62, st: 32 }, clips: SW_CLIPS, heavyClip: 'Sword_Dash' },
+    spear: { light: { dmg: 23, poise: 16, range: 3.7, arc: 0.8, dur: 0.6, hit: 0.3, st: 13 }, heavy: { dmg: 48, poise: 45, range: 4.1, arc: 0.7, dur: 0.95, hit: 0.5, st: 28 }, clips: ['Sword_Attack', 'Punch_Jab', 'Sword_Attack'], heavyClip: 'Sword_Dash' },
+    hammer: { light: { dmg: 46, poise: 60, range: 2.9, arc: 2.0, dur: 1.0, hit: 0.55, st: 24 }, heavy: { dmg: 88, poise: 120, range: 3.1, arc: 2.4, dur: 1.5, hit: 0.92, st: 42 }, clips: SW_CLIPS, heavyClip: 'Sword_Dash', armor: true },
+    scythe: { light: { dmg: 32, poise: 24, range: 3.4, arc: 2.8, dur: 0.8, hit: 0.42, st: 18 }, heavy: { dmg: 62, poise: 55, range: 3.6, arc: 3.2, dur: 1.2, hit: 0.7, st: 34 }, clips: SW_CLIPS, heavyClip: 'Sword_Dash' },
+    bow: { ranged: true, light: { dmg: 26, poise: 14, dur: 0.75, hit: 0.4, st: 6, proj: 'arrow', speed: 42, ammo: true, grav: 4 }, heavy: { dmg: 58, poise: 40, dur: 1.3, hit: 0.95, st: 18, proj: 'arrow', speed: 62, ammo: true, grav: 2 }, clips: ['Pistol_Shoot'], heavyClip: 'Pistol_Shoot', attach: { mode: 'forward', offset: new V3(0, 0, 0.08) } },
+    crossbow: { ranged: true, light: { dmg: 40, poise: 30, dur: 1.0, hit: 0.3, st: 8, proj: 'bolt', speed: 55, ammo: true, grav: 2 }, heavy: { dmg: 30, poise: 22, dur: 1.4, hit: 0.55, st: 20, proj: 'bolt', speed: 50, ammo: true, n: 3, grav: 2 }, clips: ['Pistol_Shoot'], heavyClip: 'Pistol_Shoot', attach: { mode: 'forward', offset: new V3(0, 0.05, 0.25) } },
+    staff: { ranged: true, light: { dmg: 30, poise: 20, dur: 0.75, hit: 0.42, st: 16, proj: 'orb', speed: 24 }, heavy: { dmg: 56, poise: 50, dur: 1.2, hit: 0.7, st: 36, proj: 'wave', speed: 18, pierce: true }, clips: ['Spell_Simple_Shoot'], heavyClip: 'Spell_Simple_Shoot' },
+  };
   HC.PLAYER_COLORS = [0x6a5440, 0x3a5a6a, 0x6a3a3a, 0x4a6a40];
   const PSET = { idle: 'Sword_Idle', walk: 'Walk_Loop', run: 'Jog_Fwd_Loop', sprint: 'Sprint_Loop', walkSpeed: 1.5, runSpeed: 3.8, sprintSpeed: 6.5 };
 
@@ -236,19 +251,39 @@
       this.cls = cls; this.name = name;
       this.rig = new Rig('player', { tint: color });
       this.root = this.rig.root;
-      this.weapon = this.rig.attach(HC.CLASSES[cls].weapon, 'hand_r', { mode: 'grip' });
+      this.style = 'sword';
+      this.setWeapon(HC.CLASSES[cls].weapon, HC.CLASSES[cls].weapon === 'greatsword' ? 'greatsword' : 'sword');
       this.lantern = this.rig.attach('lantern', 'pelvis', { mode: 'model', pos: new V3(0.2, 0.92, 0.08), scale: 0.8 });
       this.lanternGlow = [];
       if (this.lantern) this.lantern.traverse(o => { if (o.isMesh && /Glow/.test(o.material.name)) { o.material = o.material.clone(); this.lanternGlow.push(o.material); } });
       this.act = 'idle'; this.actT = 0; this.actDur = 1; this.speed = 0; this.lastAct = null;
       this.pos = new V3(); this.yaw = 0; this.headVisible = true;
     }
+    // swap the held weapon. glow: rarity colour (hex) worked into the weapon's materials for rare and better items
+    setWeapon(model, style, glow, glowAmt = 0) {
+      const key = model + '|' + style + '|' + glow;
+      if (this.weaponKey === key) return;
+      this.weaponKey = key;
+      if (this.weapon && this.weapon.parent) this.weapon.parent.remove(this.weapon);
+      const S = HC.STYLES[style] || HC.STYLES.sword;
+      this.style = HC.STYLES[style] ? style : 'sword';
+      this.weapon = HC.assets && HC.assets[model] ? this.rig.attach(model, 'hand_r', S.attach || { mode: 'grip' }) : null;
+      if (this.weapon && glow != null && glowAmt > 0) {
+        const c = new THREE.Color(glow);
+        this.weapon.traverse(o => {
+          if (!o.isMesh) return;
+          o.material = o.material.clone();
+          if (o.material.emissive) o.material.emissive.lerp(c, Math.min(1, glowAmt));
+          if (o.material.color && glowAmt > 0.5) o.material.color.lerp(c, 0.15);
+        });
+      }
+    }
     setLantern(on) { this.lanternGlow.forEach(m => m.color.setHex(on ? 0xffb060 : 0x221810)); }
     setHeadVisible(v) { const h = this.rig.b.Head; if (h && this.headVisible !== v) { h.scale.setScalar(v ? 1 : 0.001); this.headVisible = v; } }
     update(dt) {
       const r = this.rig, a = this.act, fresh = a !== this.lastAct || this.wasUpper;   // leaving split mode restarts the full clip
       this.lastAct = a;
-      const cls = HC.CLASSES[this.cls];
+      const cls = HC.STYLES[this.style] || HC.STYLES.sword;
       // blocking or drinking while moving: legs walk, upper body keeps the action
       const upper = (a === 'block' || a === 'drink') && this.speed > 0.3;
       this.wasUpper = upper;
@@ -263,15 +298,16 @@
       r.layer(null);
       switch (a) {
         case 'attack': case 'heavy': {
-          const at = cls[a === 'heavy' ? 'heavy' : 'light'];
-          // light attacks chain A -> B -> C; heavy is a lunging dash-slash
-          const clip = a === 'heavy' ? 'Sword_Dash' : ['Sword_Regular_A', 'Sword_Regular_B', 'Sword_Regular_C'][(this.combo || 0) % 3];
+          const at = this.atk || cls[a === 'heavy' ? 'heavy' : 'light'];
+          // light attacks chain A -> B -> C; heavy is a lunging dash-slash (ranged weapons: shoot / cast)
+          const clip = a === 'heavy' ? cls.heavyClip : cls.clips[(this.combo || 0) % cls.clips.length];
           if (fresh || this.lastCombo !== this.combo) r.strike(clip, at.hit, a === 'heavy' ? 0.5 : 0.42);
           this.lastCombo = this.combo;
           break;
         }
         case 'roll': if (fresh) r.play('Roll', { loop: false, restart: true, ts: HC.CLIPS.Roll.duration / Math.max(0.3, this.actDur), fade: 0.08 }); break;
         case 'hurt': if (fresh) r.play(this.actDur > 0.8 ? 'Hit_Knockback' : 'Hit_Chest', { loop: false, restart: true, ts: 1.3, fade: 0.06 }); break;
+        case 'throw': if (fresh) r.play('OverhandThrow', { loop: false, restart: true, ts: HC.CLIPS.OverhandThrow.duration / Math.max(0.3, this.actDur), fade: 0.08 }); break;
         case 'drink': if (fresh) r.play('Consume', { loop: false, restart: true, ts: HC.CLIPS.Consume.duration / this.actDur }); break;
         case 'block': r.play('Sword_Block', { loop: false, fade: 0.12 }); break;
         case 'revive': r.play('Fixing_Kneeling'); break;
@@ -344,9 +380,12 @@
 
   // ------------------------------------------------------------ projectiles (host decides hits; everyone draws)
   const Proj = HC.Proj = { list: [] };
-  Proj.spawn = function (type, pos, vel, dmg, simulate) {
+  // o (player shots): { friendly, poise, pierce, grav, perk } - friendly shots are simulated by the shooter against enemies
+  Proj.spawn = function (type, pos, vel, dmg, simulate, o = {}) {
     let mesh;
     if (type === 'bolt') mesh = W.clone('bolt');
+    else if (type === 'arrow' && HC.assets && HC.assets.arrow) { mesh = W.clone('arrow'); mesh.scale.setScalar(1.15); }
+    else if (type === 'bomb' && HC.assets && HC.assets.potion) { mesh = W.clone('potion'); mesh.traverse(m => { if (m.isMesh && /Liquid/.test(m.material.name)) { m.material = m.material.clone(); m.material.color.setHex(0x222018); m.material.emissive && m.material.emissive.setHex(0x401000); } }); }
     else {
       mesh = new THREE.Mesh(new THREE.SphereGeometry(type === 'wave' ? 0.6 : 0.28, 12, 8), new THREE.MeshBasicMaterial({ color: type === 'pale' ? 0x9ad0ff : 0xff6a20, toneMapped: false }));
       if (type === 'wave') mesh.scale.set(3, 0.4, 0.6);
@@ -354,16 +393,28 @@
     const holder = new THREE.Group(); holder.add(mesh); holder.position.copy(pos);
     holder.quaternion.setFromUnitVectors(new V3(0, 0, 1), vel.clone().normalize());
     FX.scene.add(holder);
-    Proj.list.push({ type, pos: pos.clone(), vel: vel.clone(), dmg, life: 4, mesh: holder, sim: simulate, hit: new Set() });
+    Proj.list.push(Object.assign({ type, pos: pos.clone(), vel: vel.clone(), dmg, life: 4, mesh: holder, sim: simulate, hit: new Set() }, o));
   };
   Proj.update = function (dt, players) {
     for (let i = Proj.list.length - 1; i >= 0; i--) {
       const p = Proj.list[i];
+      if (p.grav) { p.vel.y -= p.grav * dt; p.mesh.quaternion.setFromUnitVectors(new V3(0, 0, 1), p.vel.clone().normalize()); }
       p.pos.addScaledVector(p.vel, dt); p.life -= dt; p.mesh.position.copy(p.pos);
       if (p.type === 'orb') { p.mesh.scale.setScalar(1 + Math.sin(p.life * 30) * 0.15); if (Math.random() < 0.3) FX.spawn('ember', p.pos.clone()); }
+      if (p.type === 'bomb') p.mesh.rotation.x += dt * 9;
       let dead = p.life <= 0;
       if (p.pos.x > 1500 ? !W.walkable(p.pos.x, p.pos.z) : p.pos.y < W.heightAt(p.pos.x, p.pos.z)) dead = true;
-      if (p.sim && players) for (const pl of players) {
+      // the local player's own shots: hit enemies (the hit goes through the normal damage path in game.js)
+      if (p.friendly && p.sim && !dead) HC.Game.enemies.forEach(e => {
+        if (dead || !e.alive || !e.root.visible || p.hit.has(e.id)) return;
+        const r = (e.cfg.r || 0.5) + (p.type === 'wave' ? 1.6 : p.type === 'bomb' ? 0.5 : 0.35), cy = e.pos.y + Math.min(e.cfg.h, 3) * 0.55;
+        if (Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z) < r && Math.abs(cy - p.pos.y) < Math.max(1.1, e.cfg.h * 0.6)) {
+          p.hit.add(e.id); HC.Game.projHit(e, p);
+          if (!p.pierce) dead = true;
+        }
+      });
+      if (dead && p.friendly && p.sim && p.type === 'bomb') HC.Game.bombBurst(p);
+      if (p.sim && players && !p.friendly) for (const pl of players) {
         if (!pl.alive || p.hit.has(pl.id)) continue;
         const r = p.type === 'wave' ? 2.2 : 0.8;
         if (Math.hypot(pl.pos.x - p.pos.x, pl.pos.z - p.pos.z) < r && Math.abs(pl.pos.y + 1 - p.pos.y) < 1.6) {
@@ -371,7 +422,7 @@
           if (p.type !== 'wave') dead = true;
         }
       }
-      if (dead) { FX.scene.remove(p.mesh); Proj.list.splice(i, 1); if (p.type === 'orb') FX.spawn('ember', p.pos.clone()); }
+      if (dead) { FX.scene.remove(p.mesh); Proj.list.splice(i, 1); if (p.type === 'orb' || p.type === 'bomb') FX.spawn('ember', p.pos.clone()); }
     }
   };
 

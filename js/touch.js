@@ -28,7 +28,7 @@
     ['Lock', { down: () => tap('Tab') }, 'tb-lock'],
   ];
   const TOP = [
-    ['Map', () => tap('KeyM')], ['Lamp', () => tap('KeyF')], ['Ping', () => tap('KeyG')],
+    ['Bag', () => HC.Items.open()], ['Map', () => tap('KeyM')], ['Lamp', () => tap('KeyF')], ['Ping', () => tap('KeyG')],
     ['View', () => tap('KeyV')], ['Chat', () => tap('Enter')], ['☰', () => G().input.pause()],
   ];
 

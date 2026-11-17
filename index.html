@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -10,7 +10,7 @@
 <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=20261117e">
+<link rel="stylesheet" href="css/style.css?v=20261118b">
 </head>
 <body>
 <div id="game"></div>
@@ -47,20 +47,16 @@
     <div class="menu">
       <p id="whoBadge" class="small"></p>
       <input id="inName" type="hidden">
-      <div class="classes">
-        <button class="cls sel" data-cls="sword"><b>Oathsworn</b><span>Longsword &amp; quick feet.<br>Fast strikes, cheap dodges.</span></button>
-        <button class="cls" data-cls="greatsword"><b>Gravewarden</b><span>Greatsword &amp; heavy plate.<br>Crushing blows, more health.</span></button>
-      </div>
-      <button id="btnSolo" class="big">Begin Alone</button>
+      <button id="btnSolo" class="big play">Play</button>
       <div class="row">
         <button id="btnHost">Host Co-op</button>
         <input id="inCode" maxlength="6" placeholder="CODE">
         <button id="btnJoin">Join</button>
       </div>
-      <div class="row"><button id="btnSettings">Settings</button><button id="btnMaker" class="maker hidden">Maker Panel</button></div>
+      <div class="row"><button id="btnBag">Satchel</button><button id="btnTrade">Trade</button><button id="btnSettings">Settings</button><button id="btnMaker" class="maker hidden">Maker Panel</button></div>
       <p id="netStatus" class="small"></p>
     </div>
-    <p class="hint">Headphones recommended. Co-op connects friends over the internet (up to 4 players).</p>
+    <p class="hint">Headphones recommended. Co-op connects friends over the internet (up to 4 players). Your satchel and trades are saved to your account.</p>
   </div>
 </div>
 
@@ -102,6 +98,7 @@
   <div id="chat"><div id="chatLog"></div><input id="chatIn" class="hidden" maxlength="120" placeholder="Say something..."></div>
   <div id="clickHint">Click to look around</div>
 </div>
+<div id="quickbar"></div>
 
 <!-- ============ OVERLAYS ============ -->
 <div id="reader" class="overlay hidden"><div class="parchment"><h3 id="readerTitle"></h3><div id="readerText"></div><p class="close">[E] / [Esc] close</p></div></div>
@@ -122,7 +119,7 @@
 <div id="settings" class="overlay hidden" style="z-index:30"><div class="panel wide"><h2>Settings</h2><div id="settingsBody"></div><button id="btnSettingsClose" class="big">Done</button></div></div>
 <div id="fps" class="hidden"></div>
 <div id="makerPanel" class="overlay hidden" style="z-index:35"><div class="panel wide mkpanel">
-  <h2>Maker Panel</h2>
+  <h2 id="mkTitle">Maker Panel</h2>
   <div class="tabs"><button data-tab="players">Players</button><button data-tab="roles">Roles</button><button data-tab="codes">Access codes</button><button data-tab="console">Commands</button></div>
   <p id="mkMsg" class="small"></p>
   <div id="mkBody"></div>
@@ -143,14 +140,29 @@
       <tr><td>F</td><td>Lantern</td><td>V</td><td>First person</td></tr>
       <tr><td>G</td><td>Ping location</td><td>Enter</td><td>Chat</td></tr>
       <tr><td>M</td><td>Map</td><td>J / K</td><td>Attack / block (no mouse)</td></tr>
-      <tr><td>Arrows</td><td>Look around</td><td>F8</td><td>Maker Panel</td></tr>
+      <tr><td>Arrows</td><td>Look around</td><td>F8</td><td>Commands</td></tr>
+      <tr><td>I</td><td>Satchel (items)</td><td>1 - 4</td><td>Quick items</td></tr>
     </table>
     <button id="btnResume" class="big">Resume</button>
+    <div class="row"><button id="btnBag2">Satchel [I]</button><button id="btnTrade2">Trading Post</button></div>
     <button id="btnSettings2">Settings</button>
     <button id="btnMaker2" class="maker hidden">Maker Panel [F8]</button>
     <button id="btnQuit">Abandon journey</button>
   </div>
 </div>
+<div id="inventory" class="overlay hidden" style="z-index:31"><div class="panel wide inv">
+  <h2>Satchel</h2>
+  <div class="invcols"><div><div id="invEquip"></div><div id="invGrid"></div></div><div id="invInfo"></div></div>
+  <div class="row"><button id="invTrade">Trading Post</button><button id="invClose" class="big">Close [I]</button></div>
+</div></div>
+<div id="trade" class="overlay hidden" style="z-index:32"><div class="panel wide trade">
+  <h2>Trading Post</h2>
+  <div class="tabs"><button data-tt="new">New offer</button><button data-tt="in">Incoming</button><button data-tt="out">Sent</button></div>
+  <p id="tradeMsg" class="small"></p>
+  <div id="tradeBody"></div>
+  <button id="tradeClose" class="big">Close</button>
+</div></div>
+<div id="blind"></div>
 <div id="fade"></div>
 
 <!-- Three.js r128 classic builds (work from file://) -->
@@ -168,22 +180,23 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="js/firebase-config.js?v=20261117e"></script>
+<script src="js/firebase-config.js?v=20261118b"></script>
 
-<script src="js/models.js?v=20261117e"></script>
-<script src="js/models2.js?v=20261117e"></script>
-<script src="js/textures.js?v=20261117e"></script>
-<script src="js/sounds.js?v=20261117e"></script>
-<script src="js/story.js?v=20261117e"></script>
-<script src="js/settings.js?v=20261117e"></script>
-<script src="js/audio.js?v=20261117e"></script>
-<script src="js/world.js?v=20261117e"></script>
-<script src="js/entities.js?v=20261117e"></script>
-<script src="js/net-config.js?v=20261117e"></script>
-<script src="js/net.js?v=20261117e"></script>
-<script src="js/game.js?v=20261117e"></script>
-<script src="js/online.js?v=20261117e"></script>
-<script src="js/access.js?v=20261117e"></script>
-<script src="js/touch.js?v=20261117e"></script>
+<script src="js/models.js?v=20261118b"></script>
+<script src="js/models2.js?v=20261118b"></script>
+<script src="js/textures.js?v=20261118b"></script>
+<script src="js/sounds.js?v=20261118b"></script>
+<script src="js/story.js?v=20261118b"></script>
+<script src="js/settings.js?v=20261118b"></script>
+<script src="js/audio.js?v=20261118b"></script>
+<script src="js/world.js?v=20261118b"></script>
+<script src="js/entities.js?v=20261118b"></script>
+<script src="js/items.js?v=20261118b"></script>
+<script src="js/net-config.js?v=20261118b"></script>
+<script src="js/net.js?v=20261118b"></script>
+<script src="js/game.js?v=20261118b"></script>
+<script src="js/online.js?v=20261118b"></script>
+<script src="js/access.js?v=20261118b"></script>
+<script src="js/touch.js?v=20261118b"></script>
 </body>
 </html>

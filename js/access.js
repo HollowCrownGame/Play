@@ -12,26 +12,67 @@
   const G = () => HC.Game, api = () => HC.Game && HC.Game.api;
 
   // ================================================================ commands
-  // net: true -> broadcast as an 'adm' event (host checks permission); account: true -> writes the online account
+  // target: players (pick players in the menu) | account (any account by name) | none (world).
+  // net: true -> sent as an 'adm' event that the co-op host checks against the sender's permissions.
+  // params: inputs shown next to the command's button in the menu (and the order of extra words in chat).
+  const num = (k, label, def, min, max) => ({ k, type: 'num', label, def, min, max });
+  const txt = (k, label, def = '') => ({ k, type: 'text', label, def });
+  const sel = (k, label, opts, def) => ({ k, type: 'select', label, opts, def });
+  const P = { target: 'players', net: true }, WD = { target: 'none', net: true }, ACC = { target: 'account', account: true };
+  const itemOpts = () => Object.entries(HC.Items.BASES).map(([k, b]) => [k, b.name]);
+  const rarOpts = () => HC.Items.RAR.map((r, i) => [String(i), r.name]);
+  const enemyOpts = () => Object.keys(HC.ETYPES || {}).filter(k => !HC.ETYPES[k].boss).map(k => [k, k]);
+  const relicOpts = () => Object.entries(HC.RELICS || {}).map(([k, r]) => [k, r[0]]);
   const CMDS = AC.COMMANDS = {
-    announce: { args: '<message>', desc: 'Banner + chat message to everyone', net: true },
-    heal: { args: '[player|all]', desc: 'Fully restore health, stamina and flasks', net: true },
-    revive: { args: '<player>', desc: 'Lift a fallen player', net: true },
-    kill: { args: '<player>', desc: 'Strike a player down', net: true },
-    god: { args: '[player]', desc: 'Toggle invulnerability', net: true },
-    speed: { args: '<multiplier> [player]', desc: 'Movement speed (1 = normal, max 5)', net: true },
-    give: { args: '<player> <ash|flask> <amount>', desc: 'Give ashes or Ember Flasks', net: true },
-    tp: { args: '<player>', desc: 'Teleport to a player' },
-    bring: { args: '<player|all>', desc: 'Teleport a player to you', net: true },
-    spawn: { args: '<enemy> [count]', desc: 'Summon enemies in front of you', net: true },
-    clear: { args: '[radius]', desc: 'Destroy enemies around you (default 30 m)', net: true },
-    flag: { args: '<key> <on|off>', desc: 'Set a story flag (opens gates, skips bosses...)', net: true },
-    kick: { args: '<player> [reason]', desc: 'Remove a player from this journey', net: true },
-    mute: { args: '<name> [minutes]', desc: 'Silence a player\'s chat (default 10 min)', account: true },
-    unmute: { args: '<name>', desc: 'Lift a mute', account: true },
-    tempban: { args: '<name> <minutes> [reason]', desc: 'Ban an account for a while', account: true },
-    ban: { args: '<name> [reason]', desc: 'Ban an account forever', account: true },
-    unban: { args: '<name>', desc: 'Lift a ban', account: true },
+    // ---- players
+    heal: { ...P, cat: 'Players', label: 'Heal', desc: 'Full health, stamina and flasks; clears burning, blindness and confusion', self: true },
+    revive: { ...P, cat: 'Players', label: 'Revive', desc: 'Lift a fallen player' },
+    kill: { ...P, cat: 'Players', label: 'Kill', desc: 'Strike a player down' },
+    god: { ...P, cat: 'Players', label: 'God mode', desc: 'Toggle: cannot be harmed', self: true },
+    speed: { ...P, cat: 'Players', label: 'Speed', desc: 'Movement speed multiplier (1 = normal)', self: true, params: [num('mul', 'x', 2, 0.1, 5)] },
+    power: { ...P, cat: 'Players', label: 'Power', desc: 'Damage multiplier (1 = normal)', self: true, params: [num('mul', 'x', 3, 1, 50)] },
+    stamina: { ...P, cat: 'Players', label: 'Endless stamina', desc: 'Toggle: stamina never runs out', self: true },
+    size: { ...P, cat: 'Players', label: 'Size', desc: 'Make a player giant or tiny (1 = normal)', self: true, params: [num('mul', 'x', 1.6, 0.3, 3)] },
+    invisible: { ...P, cat: 'Players', label: 'Invisible', desc: 'Toggle: other players cannot see them', self: true },
+    freeze: { ...P, cat: 'Players', label: 'Freeze', desc: 'Toggle: the player cannot move or attack' },
+    burn: { ...P, cat: 'Players', label: 'Set on fire', desc: 'Burns for a few seconds', params: [num('s', 'sec', 6, 1, 60)] },
+    smite: { ...P, cat: 'Players', label: 'Smite', desc: 'A pillar of fire: half their health' },
+    blind: { ...P, cat: 'Players', label: 'Blind', desc: 'Black out their screen', params: [num('s', 'sec', 5, 1, 30)] },
+    confuse: { ...P, cat: 'Players', label: 'Confuse', desc: 'Reverse their movement controls', params: [num('s', 'sec', 10, 1, 60)] },
+    tp: { target: 'players', cat: 'Players', label: 'Go to', desc: 'Teleport yourself to a player', one: true },
+    bring: { ...P, cat: 'Players', label: 'Bring', desc: 'Teleport players to you' },
+    home: { ...P, cat: 'Players', label: 'Send home', desc: 'Send them back to the Drowned Village' },
+    whisper: { ...P, cat: 'Players', label: 'Whisper', desc: 'Private message on their screen', params: [txt('text', 'message')] },
+    // ---- items & progress
+    giveitem: { ...P, cat: 'Items', label: 'Give item', desc: 'Put an item in their satchel', self: true, params: [sel('item', 'item', itemOpts, 'longbow'), sel('r', 'rarity', rarOpts, '4'), num('n', 'amount', 1, 1, 99)] },
+    kit: { ...P, cat: 'Items', label: 'Starter kit', desc: 'Sword, bow, 30 arrows, 3 draughts', self: true },
+    clearinv: { ...P, cat: 'Items', label: 'Empty satchel', desc: 'Delete every item they carry', danger: true },
+    ash: { ...P, cat: 'Items', label: 'Give ashes', desc: 'Ashes buy levels and items', self: true, params: [num('n', 'amount', 1000, 1, 1000000)] },
+    flask: { ...P, cat: 'Items', label: 'Give flasks', desc: 'Extra Ember Flasks', self: true, params: [num('n', 'amount', 1, 1, 20)] },
+    relic: { ...P, cat: 'Items', label: 'Give relic', desc: 'Grant a boss relic', self: true, params: [sel('relic', 'relic', relicOpts, 'oathbrand')] },
+    setlevel: { ...P, cat: 'Items', label: 'Set level', desc: 'Set level (stats spread evenly)', self: true, params: [num('n', 'level', 20, 1, 300)] },
+    embers: { ...P, cat: 'Items', label: 'Unlock embers', desc: 'Every ember can be travelled to', self: true },
+    // ---- moderation
+    kick: { ...P, cat: 'Moderation', label: 'Kick', desc: 'Remove from this journey', params: [txt('reason', 'reason')] },
+    mute: { ...ACC, cat: 'Moderation', label: 'Mute', desc: 'Silence chat', params: [num('m', 'min', 10, 1, 525600)] },
+    unmute: { ...ACC, cat: 'Moderation', label: 'Unmute', desc: 'Lift a mute' },
+    tempban: { ...ACC, cat: 'Moderation', label: 'Temp ban', desc: 'Ban the account for a while', params: [num('m', 'min', 60, 1, 5256000), txt('reason', 'reason')] },
+    ban: { ...ACC, cat: 'Moderation', label: 'Ban', desc: 'Ban the account forever', danger: true, params: [txt('reason', 'reason')] },
+    unban: { ...ACC, cat: 'Moderation', label: 'Unban', desc: 'Lift a ban' },
+    // ---- world
+    announce: { ...WD, cat: 'World', label: 'Announce', desc: 'Banner + chat message to everyone', params: [txt('text', 'message')] },
+    spawn: { ...WD, cat: 'World', label: 'Spawn enemies', desc: 'Summon enemies in front of you', params: [sel('type', 'enemy', enemyOpts, 'hollow'), num('n', 'count', 3, 1, 10)] },
+    drop: { ...WD, cat: 'World', label: 'Drop item', desc: 'Drop loot in front of you for anyone to take', params: [sel('item', 'item', itemOpts, 'emberblade'), sel('r', 'rarity', rarOpts, '5'), num('n', 'amount', 1, 1, 99)] },
+    lootrain: { ...WD, cat: 'World', label: 'Loot rain', desc: 'Scatter random loot around you', params: [num('n', 'items', 8, 1, 30)] },
+    clear: { ...WD, cat: 'World', label: 'Clear area', desc: 'Destroy enemies around you', params: [num('r', 'metres', 30, 1, 300)] },
+    killall: { ...WD, cat: 'World', label: 'Kill all', desc: 'Destroy every enemy in the world (not bosses)' },
+    bosskill: { ...WD, cat: 'World', label: 'Defeat boss', desc: 'Instantly defeat the boss being fought' },
+    resetworld: { ...WD, cat: 'World', label: 'Respawn enemies', desc: 'Every enemy comes back' },
+    peace: { ...WD, cat: 'World', label: 'Freeze enemies', desc: 'Toggle: enemies stop moving and attacking' },
+    slowmo: { ...WD, cat: 'World', label: 'Slow motion', desc: 'Toggle: the whole world at 40% speed' },
+    fog: { ...WD, cat: 'World', label: 'Fog', desc: 'Fog thickness (1 = normal)', params: [num('mul', 'x', 0.3, 0.1, 4)] },
+    bell: { ...WD, cat: 'World', label: 'Ring the bell', desc: 'The church bell tolls for everyone' },
+    flag: { ...WD, cat: 'World', label: 'Story flag', desc: 'Open gates, skip bosses... (e.g. key, cryptOpen, citadelOpen, gateOpen, dead_sentinel)', params: [txt('k', 'flag', 'key'), sel('v', 'set', () => [['1', 'on'], ['0', 'off']], '1')] },
   };
   const FREE = { help: 'List the commands you can use', players: 'Who is in this journey', whoami: 'Your account and role' };
 
@@ -43,6 +84,7 @@
     if (maker || p.admin) return true;
     const r = AC.role(p); return !!(r && (r.commands || []).includes(cmd));
   };
+  AC.canPanel = () => AC.isAdmin() || Object.keys(CMDS).some(c => AC.can(c));
   const tagOf = p => p && (p.uid === AC.makerUid ? { tag: 'Maker', color: '#e0b860' } : p.admin ? { tag: 'Admin', color: '#d07050' } : AC.role(p) ? { tag: AC.role(p).name, color: AC.role(p).color } : null);
 
   function sys(text) { const a = api(); if (a) a.chatLine('*', text, 'System', '#8a8273'); consoleLog(text); }
@@ -57,7 +99,7 @@
     return exact.length ? exact : list.filter(p => p.name.toLowerCase().startsWith(ql)).slice(0, 1);
   }
 
-  // entry point for chat text and the panel console
+  // entry point for chat text
   AC.chat = function (text) {
     const a = api(); if (!a) return;
     if (text[0] === '/') return AC.run(text.slice(1));
@@ -66,65 +108,60 @@
     G().event({ t: 'chat', from: a.me().name, text: text.slice(0, 120), tag: t.tag || '', color: t.color || '' });
   };
 
+  // typed command: /cmd [player|all] [values...]  (the menu calls AC.exec directly)
   AC.run = async function (line) {
-    const parts = line.trim().split(/\s+/), cmd = (parts.shift() || '').toLowerCase(), a = api();
+    const parts = line.trim().split(/\s+/), cmd = (parts.shift() || '').toLowerCase();
     if (!cmd) return;
-    if (!CMDS[cmd] && !FREE[cmd]) return sys(`Unknown command /${cmd}. Type /help.`);
-    if (!AC.can(cmd)) return sys(`You don't have permission to use /${cmd}.`);
-    const me = a && a.me();
+    if (FREE[cmd]) {
+      if (cmd === 'help') { const mine = Object.keys(CMDS).filter(c => AC.can(c)); sys('Commands: /help /players /whoami' + (mine.length ? ' ' + mine.map(c => '/' + c).join(' ') : '') + (mine.length ? '  (easier: open the Command menu with F8)' : '')); return; }
+      if (cmd === 'players') return sys('In this journey: ' + [...G().players.values()].map(p => p.name).join(', '));
+      if (cmd === 'whoami') { const t = tagOf(AC.profile); return sys(`${AC.profile.name}${t ? ' [' + t.tag + ']' : ''}${O.mode === 'local' ? ' (local test mode)' : ''}`); }
+    }
+    const C = CMDS[cmd]; if (!C) return sys(`Unknown command /${cmd}. Type /help.`);
+    const pick = { pids: [], names: [] };
+    if (C.target === 'players') {
+      const who = parts[0] && findPlayers(parts[0], !C.one);
+      if (who && who.length) { parts.shift(); pick.pids = who.map(p => p.id); }
+      else if (C.self) pick.pids = [Net.pid];
+      else return sys(`Usage: /${cmd} <player${C.one ? '' : '|all'}>${(C.params || []).map(p => ' <' + p.label + '>').join('')}`);
+    }
+    if (C.target === 'account') { if (!parts[0]) return sys(`Usage: /${cmd} <name>${(C.params || []).map(p => ' <' + p.label + '>').join('')}`); pick.names = [parts.shift()]; }
+    const args = {};
+    (C.params || []).forEach((p, i, arr) => { const v = p.type === 'text' && i === arr.length - 1 ? parts.splice(0).join(' ') : parts.shift(); if (v !== undefined && v !== '') args[p.k] = v; });
+    return AC.exec(cmd, pick, args);
+  };
+
+  const clamp = (v, p) => { if (p.type !== 'num') return v; const n = parseFloat(v); return Math.max(p.min, Math.min(p.max, isNaN(n) ? p.def : n)); };
+  AC.exec = async function (cmd, pick, raw = {}) {
+    const C = CMDS[cmd]; if (!C) return;
+    if (!AC.can(cmd)) return sys(`You don't have permission to use ${C.label}.`);
+    const args = {}; (C.params || []).forEach(p => { args[p.k] = clamp(raw[p.k] !== undefined ? raw[p.k] : p.def, p); });
     try {
-      switch (cmd) {
-        case 'help': {
-          const mine = Object.keys(CMDS).filter(c => AC.can(c));
-          sys('Commands: /help /players /whoami' + (mine.length ? ' ' + mine.map(c => '/' + c).join(' ') : ''));
-          mine.forEach(c => consoleLog(`/${c} ${CMDS[c].args} - ${CMDS[c].desc}`));
-          return;
-        }
-        case 'players': return sys('In this journey: ' + [...G().players.values()].map(p => p.name).join(', '));
-        case 'whoami': { const t = tagOf(AC.profile); return sys(`${AC.profile.name}${t ? ' [' + t.tag + ']' : ''}${O.mode === 'local' ? ' (local test mode)' : ''}`); }
-        case 'tp': {
-          const p = findPlayers(parts[0])[0]; if (!p || !me) return sys('No such player here.');
-          me.pos.copy(p.pos); return sys(`Teleported to ${p.name}.`);
-        }
-        case 'mute': case 'unmute': case 'ban': case 'tempban': case 'unban': return accountCmd(cmd, parts);
+      if (C.target === 'account') {
+        if (!pick.names.length) throw new Error('Pick a player (or type an account name) first.');
+        for (const n of pick.names) await accountCmd(cmd, n, args);
+        return;
       }
-      // game commands - resolve targets locally, the host re-checks permission before applying
-      if (!me) return sys('Start a journey first.');
-      const e = { t: 'adm', op: cmd, by: me.name, byPid: Net.pid, pos: [me.pos.x, me.pos.y, me.pos.z], yaw: me.yaw };
-      const need = (q, all) => { const t = findPlayers(q, all); if (!t.length) throw new Error('No such player here.'); return t.map(p => p.id); };
-      switch (cmd) {
-        case 'announce': if (!parts.length) throw new Error('Usage: /announce <message>'); e.text = parts.join(' ').slice(0, 140); break;
-        case 'heal': case 'god': e.targets = parts[0] ? need(parts[0], true) : [Net.pid]; break;
-        case 'revive': case 'kill': case 'bring': e.targets = need(parts[0], cmd !== 'kill'); break;
-        case 'speed': { const m = parseFloat(parts[0]); if (!(m > 0)) throw new Error('Usage: /speed <multiplier> [player]'); e.mul = Math.min(5, m); e.targets = parts[1] ? need(parts[1], true) : [Net.pid]; break; }
-        case 'give': {
-          const what = (parts[1] || '').toLowerCase(), n = parseInt(parts[2] || '1');
-          if (!['ash', 'ashes', 'flask', 'flasks'].includes(what) || !(n > 0)) throw new Error('Usage: /give <player> <ash|flask> <amount>');
-          e.targets = need(parts[0], true); e.what = what.startsWith('ash') ? 'ash' : 'flask'; e.n = Math.min(n, what.startsWith('ash') ? 1e6 : 20); break;
-        }
-        case 'spawn': {
-          const type = (parts[0] || '').toLowerCase(), types = Object.keys(HC.ETYPES || {}).filter(k => !HC.ETYPES[k].boss);
-          if (!HC.ETYPES || !HC.ETYPES[type]) throw new Error('Enemies: ' + types.join(', '));
-          e.type = type; e.n = Math.max(1, Math.min(10, parseInt(parts[1] || '1'))); break;
-        }
-        case 'clear': e.r = Math.max(1, Math.min(300, parseFloat(parts[0] || '30'))); break;
-        case 'flag': if (!parts[0]) throw new Error('Usage: /flag <key> <on|off>'); e.k = parts[0]; e.v = !/^(off|false|0)$/i.test(parts[1] || 'on'); break;
-        case 'kick': e.targets = need(parts[0]); e.reason = parts.slice(1).join(' ').slice(0, 100); if (e.targets.includes(Net.pid)) throw new Error('You cannot kick yourself.'); break;
-      }
-      G().event(e);
+      const a = api(), me = a && a.me();
+      if (!me || !G().started) throw new Error('Start a journey first (commands that change players or the world work in-game).');
+      if (C.target === 'players' && !pick.pids.length) throw new Error('Pick at least one player on the left.');
+      if (cmd === 'tp') { const p = G().players.get(pick.pids[0]); if (!p) throw new Error('No such player here.'); me.pos.copy(p.pos); return sys(`Teleported to ${p.name}.`); }
+      if (cmd === 'kick' && pick.pids.includes(Net.pid)) throw new Error('You cannot kick yourself.');
+      if (C.text && !args.text) throw new Error('Type a message first.');
+      if ((cmd === 'announce' || cmd === 'whisper') && !String(args.text || '').trim()) throw new Error('Type a message first.');
+      G().event({ t: 'adm', op: cmd, by: me.name, byPid: Net.pid, pos: [me.pos.x, me.pos.y, me.pos.z], yaw: me.yaw, targets: C.target === 'players' ? pick.pids : [], a: args });
     } catch (err) { sys(err.message || String(err)); }
   };
 
-  async function accountCmd(cmd, parts) {
-    const name = parts[0]; if (!name) return sys(`Usage: /${cmd} ${CMDS[cmd].args}`);
+  async function accountCmd(cmd, name, A) {
     const u = await O.findByName(name); if (!u) return sys(`No account named "${name}".`);
     if (u.uid === AC.makerUid && cmd !== 'unmute' && cmd !== 'unban') return sys('The Maker cannot be punished.');
     if (u.admin && !AC.maker && ['ban', 'tempban', 'mute'].includes(cmd)) return sys('Only the Maker can punish an admin.');
     try {
-      if (cmd === 'mute') { const m = parseFloat(parts[1] || '10'); await O.mute(u.uid, m); sys(`${u.name} is muted for ${m} min.`); }
+      if (cmd === 'mute') { await O.mute(u.uid, A.m); sys(`${u.name} is muted for ${fmtMin(A.m)}.`); }
       if (cmd === 'unmute') { await O.mute(u.uid, 0); sys(`${u.name} can speak again.`); }
-      if (cmd === 'tempban') { const m = parseFloat(parts[1]); if (!(m > 0)) return sys('Usage: /tempban <name> <minutes> [reason]'); await O.ban(u.uid, m, parts.slice(2).join(' '), AC.profile.name); sys(`${u.name} is banned for ${fmtMin(m)}.`); bootOnline(u, 'ban'); }
-      if (cmd === 'ban') { await O.ban(u.uid, 0, parts.slice(1).join(' '), AC.profile.name); sys(`${u.name} is banned forever.`); bootOnline(u, 'ban'); }
+      if (cmd === 'tempban') { await O.ban(u.uid, A.m, A.reason || '', AC.profile.name); sys(`${u.name} is banned for ${fmtMin(A.m)}.`); bootOnline(u, 'ban'); }
+      if (cmd === 'ban') { await O.ban(u.uid, 0, A.reason || '', AC.profile.name); sys(`${u.name} is banned forever.`); bootOnline(u, 'ban'); }
       if (cmd === 'unban') { await O.unban(u.uid); sys(`${u.name} is no longer banned.`); }
     } catch (e) { sys('The online service refused that (' + (e.code || e.message) + ').'); }
   }
@@ -132,41 +169,73 @@
   function bootOnline(u, why) {
     const p = [...(G() ? G().players.values() : [])].find(p => p.name.toLowerCase() === u.nameLower);
     const me = api() && api().me();
-    if (p && me && p.id !== Net.pid) G().event({ t: 'adm', op: 'kick', by: me.name, byPid: Net.pid, targets: [p.id], reason: why === 'ban' ? 'banned' : '', pos: [0, 0, 0] });
+    if (p && me && p.id !== Net.pid) G().event({ t: 'adm', op: 'kick', by: me.name, byPid: Net.pid, targets: [p.id], a: { reason: why === 'ban' ? 'banned' : '' }, pos: [0, 0, 0] });
   }
 
-  // applied on every machine (host already verified the sender)
+  // applied on every machine (the host already verified the sender)
   AC.apply = function (e) {
     const a = api(); if (!a) return;
-    const me = a.me(), mine = (e.targets || []).includes(Net.pid);
+    const me = a.me(), A = e.a || {}, targets = e.targets || [], mine = targets.includes(Net.pid), host = Net.isHost();
     const at = new THREE.Vector3(e.pos[0], e.pos[1], e.pos[2]);
+    const lim = (v, lo, hi, d) => { const n = parseFloat(v); return Math.max(lo, Math.min(hi, isNaN(n) ? d : n)); };
+    const tp = () => targets.map(id => G().players.get(id)).filter(Boolean);
+    const front = (d = 4) => new THREE.Vector3(at.x + Math.sin(e.yaw || 0) * d, at.y, at.z + Math.cos(e.yaw || 0) * d);
+    const W = HC.World, en = () => [...G().enemies.values()];
     switch (e.op) {
-      case 'announce': a.areaBanner(e.text); a.chatLine(e.by, e.text, 'Announcement', '#e0b860'); break;
-      case 'heal': if (mine && me) { me.hp = me.maxHp; me.st = me.maxSt; me.flasks = me.maxFlasks; a.message(`${e.by} restored you.`); } break;
+      case 'announce': a.areaBanner(String(A.text || '').slice(0, 140)); a.chatLine(e.by, String(A.text || '').slice(0, 140), 'Announcement', '#e0b860'); break;
+      case 'heal': if (mine && me) { me.hp = me.maxHp; me.st = me.maxSt; me.flasks = me.maxFlasks; me.burnT = 0; me.blindT = 0; me.confuseT = 0; a.message(`${e.by} restored you.`); } break;
       case 'revive': if (mine && me && me.downed) a.revived(e.by); break;
       case 'kill': if (mine && me) { me.god = false; a.receiveDamage(1e9, at, 'admin'); } break;
       case 'god': if (mine && me) { me.god = !me.god; a.message(me.god ? 'You cannot be harmed.' : 'You are mortal again.'); } break;
-      case 'speed': if (mine && me) { me.speedMul = e.mul; a.message(`Speed x${e.mul}.`); } break;
-      case 'give': if (mine && me) { if (e.what === 'ash') { me.ash += e.n; a.floatText(`+${e.n} ashes`); } else { me.maxFlasks += e.n; me.flasks += e.n; a.message(`${e.by} gave you ${e.n} Ember Flask${e.n > 1 ? 's' : ''}.`); } } break;
+      case 'speed': if (mine && me) { me.speedMul = lim(A.mul, 0.1, 5, 1); a.message(`Speed x${me.speedMul}.`); } break;
+      case 'power': if (mine && me) { me.power = lim(A.mul, 1, 50, 1); a.message(`Your blows hit x${me.power} harder.`); } break;
+      case 'stamina': if (mine && me) { me.infSt = !me.infSt; a.message(me.infSt ? 'Your stamina is endless.' : 'Your stamina is mortal again.'); } break;
+      case 'size': tp().forEach(p => p.avatar.root.scale.setScalar(lim(A.mul, 0.3, 3, 1))); if (mine) a.message(`${e.by} changed your size.`); break;
+      case 'invisible': tp().forEach(p => { p.hidden = !p.hidden; if (!p.local) p.avatar.root.visible = !p.hidden; else a.message(p.hidden ? 'You are invisible to the others.' : 'You are visible again.'); }); break;
+      case 'freeze': if (mine && me) { me.frozen = !me.frozen; a.message(me.frozen ? `${e.by} froze you in place.` : 'You can move again.'); } break;
+      case 'burn': if (mine && me) { me.burnT = lim(A.s, 1, 60, 6); a.message(`${e.by} set you on fire!`); } break;
+      case 'smite':
+        tp().forEach(p => { HC.FX.spawn('pillar', p.pos, { color: 0xffe0a0, r: 1.6 }); HC.Audio.play('boom', p.pos, 1); });
+        if (mine && me) { G().shakeA = 0.8; a.receiveDamage(me.maxHp * 0.5, me.pos.clone().add(new THREE.Vector3(0, 0, 1)), 'fire'); }
+        break;
+      case 'blind': if (mine && me) me.blindT = lim(A.s, 1, 30, 5); break;
+      case 'confuse': if (mine && me) { me.confuseT = lim(A.s, 1, 60, 10); a.message('Your senses twist...'); } break;
       case 'bring': if (mine && me && e.byPid !== Net.pid) { me.pos.set(at.x + (Math.random() - 0.5) * 2, at.y, at.z + (Math.random() - 0.5) * 2); a.message(`${e.by} summoned you.`); } break;
+      case 'home': if (mine && me) { a.travel(W.START.clone(), Math.PI); a.message(`${e.by} sent you home.`); } break;
+      case 'whisper': if (mine) { a.chatLine(e.by, String(A.text || '').slice(0, 140), 'Whisper', '#b9a0e0'); a.message(`${e.by} whispers: ${String(A.text || '').slice(0, 140)}`); } break;
+      case 'giveitem': if (mine && me && HC.Items.BASES[A.item]) { HC.Items.give(A.item, lim(A.r, 0, 5, 0), lim(A.n, 1, 99, 1)); a.message(`${e.by} gave you something.`); } break;
+      case 'kit': if (mine) { HC.Items.kit(); a.message(`${e.by} gave you a starter kit.`); } break;
+      case 'clearinv': if (mine) { HC.Items.clearAll(); a.message(`${e.by} emptied your satchel.`); } break;
+      case 'ash': if (mine && me) { const n = lim(A.n, 1, 1e6, 1); me.ash += n; a.floatText(`+${n} ashes`); } break;
+      case 'flask': if (mine && me) { const n = lim(A.n, 1, 20, 1); me.bonusFlasks = (me.bonusFlasks || 0) + n; a.recalc(); me.flasks = me.maxFlasks; a.message(`${e.by} gave you ${n} Ember Flask${n > 1 ? 's' : ''}.`); } break;
+      case 'relic': if (mine && me && HC.RELICS[A.relic]) a.grantRelic(A.relic); break;
+      case 'setlevel': if (mine && me) { const n = lim(A.n, 1, 300, 1), pts = n - 1; me.level = n; me.vig = Math.ceil(pts / 3); me.end = Math.floor((pts + 1) / 3); me.str = Math.floor(pts / 3); a.recalc(); me.hp = me.maxHp; a.message(`You are now level ${n}.`); } break;
+      case 'embers': if (mine && me) { Object.keys(W.SHRINES).forEach(id => me.found.add(id)); a.message('Every ember remembers you. Travel from any shrine.'); } break;
       case 'spawn':
-        if (Net.isHost()) for (let i = 0; i < e.n; i++) {
-          const ang = (e.yaw || 0) + (i - (e.n - 1) / 2) * 0.35, d = 5;
+        if (host && HC.ETYPES[A.type] && !HC.ETYPES[A.type].boss) { const n = lim(A.n, 1, 10, 1); for (let i = 0; i < n; i++) {
+          const ang = (e.yaw || 0) + (i - (n - 1) / 2) * 0.35, d = 5;
           const x = at.x + Math.sin(ang) * d, z = at.z + Math.cos(ang) * d;
-          const y = x > 1500 ? at.y : HC.World.heightAt(x, z);
-          G().event({ t: 'spawn', id: 'adm' + Date.now().toString(36) + i, type: e.type, pos: [x, y, z] });
-        }
+          const y = x > 1500 ? at.y : W.heightAt(x, z);
+          G().event({ t: 'spawn', id: 'adm' + Date.now().toString(36) + i, type: A.type, pos: [x, y, z] });
+        } }
         break;
-      case 'clear':
-        if (Net.isHost()) G().enemies.forEach(en => { if (en.alive && !en.boss && en.pos.distanceTo(at) < e.r) en.takeHit(1e9, 1e9, at, e.byPid); });
-        break;
-      case 'flag': if (Net.isHost()) G().event({ t: 'flag', k: e.k, v: e.v, msg: `${e.by} bent fate: ${e.k} ${e.v ? 'on' : 'off'}.` }); break;
+      case 'drop': if (host) { const it = HC.Items.make(A.item, lim(A.r, 0, 5, 0), lim(A.n, 1, 99, 1)); HC.Items.dropAt(it, front(3), 0); } break;
+      case 'lootrain': if (host) { const n = lim(A.n, 1, 30, 8); for (let i = 0; i < n; i++) { const ang = Math.random() * 6.28, r = 2 + Math.random() * 6; HC.Items.dropAt(HC.Items.random(0.6), new THREE.Vector3(at.x + Math.cos(ang) * r, at.y, at.z + Math.sin(ang) * r), 0); } } break;
+      case 'clear': if (host) { const r = lim(A.r, 1, 300, 30); en().forEach(x => { if (x.alive && !x.boss && x.type !== 'watcher' && x.pos.distanceTo(at) < r) x.takeHit(1e9, 1e9, at, e.byPid); }); } break;
+      case 'killall': if (host) en().forEach(x => { if (x.alive && !x.boss && x.type !== 'watcher') x.takeHit(1e9, 1e9, x.pos, e.byPid); }); break;
+      case 'bosskill': if (host && G().activeBoss) { const b = G().bossE[G().activeBoss]; if (b && b.alive) b.takeHit(1e9, 1e9, b.pos, e.byPid); } break;
+      case 'resetworld': a.resetEnemies(); a.message(`${e.by} called the dead back.`); break;
+      case 'peace': G().peace = !G().peace; a.message(G().peace ? `${e.by} froze every enemy.` : 'The enemies stir again.'); break;
+      case 'slowmo': G().timeScale = G().timeScale === 0.4 ? 1 : 0.4; a.message(G().timeScale < 1 ? 'Time slows...' : 'Time flows again.'); break;
+      case 'fog': G().fogMul = lim(A.mul, 0.1, 4, 1); break;
+      case 'bell': a.ringBell(); break;
+      case 'flag': if (host && A.k) G().event({ t: 'flag', k: String(A.k).slice(0, 32), v: String(A.v) !== '0', msg: `${e.by} bent fate: ${A.k} ${String(A.v) !== '0' ? 'on' : 'off'}.` }); break;
       case 'kick':
-        if (mine) AC.kicked(e.reason === 'banned' ? 'You have been banished by ' + e.by + '.' : `${e.by} removed you from the journey.${e.reason ? ' Reason: ' + e.reason : ''}`);
-        else if (Net.mode === 'host') setTimeout(() => Net.conns.forEach(v => { if ((e.targets || []).includes(v.pid)) try { v.conn.close(); } catch (x) { } }), 600);
+        if (mine) AC.kicked(A.reason === 'banned' ? 'You have been banished by ' + e.by + '.' : `${e.by} removed you from the journey.${A.reason ? ' Reason: ' + A.reason : ''}`);
+        else if (Net.mode === 'host') setTimeout(() => Net.conns.forEach(v => { if (targets.includes(v.pid)) try { v.conn.close(); } catch (x) { } }), 600);
         break;
     }
-    if (e.op !== 'announce' && e.byPid === Net.pid) consoleLog(`/${e.op} done.`);
+    if (e.op !== 'announce' && e.byPid === Net.pid) consoleLog(`${(CMDS[e.op] || {}).label || e.op}: done${targets.length ? ' (' + targets.map(id => (G().players.get(id) || {}).name).filter(Boolean).join(', ') + ')' : ''}.`);
   };
 
   AC.kicked = function (text) {
@@ -240,6 +309,7 @@
     if (!p.name) { AC.passed = false; $('gateTitle').textContent = 'THE HOLLOW CROWN'; stepTo('gateName'); $('gateLead').textContent = AC.maker ? 'You are the Maker of this world. Choose the name you will be known by.' : 'The gate opens. What are you called, traveler?'; setTimeout(() => $('inUser').focus(), 50); return gateShow(); }
     // through the gate
     $('inName').value = p.name; $('inName').readOnly = true;
+    if (HC.Items && !HC.Items.loaded && !AC.invLoading) { AC.invLoading = true; HC.Items.load().then(() => HC.Items.startTrades()); }
     if (!AC.passed) { AC.passed = true; show('gate', false); if (!(G() && (G().started || G().booting)) && $('lobby').classList.contains('hidden')) show('title'); }
   }
   function gateShow() { show('gate'); show('title', false); show('lobby', false); }
@@ -247,7 +317,7 @@
   function renderBadges() {
     const p = AC.profile, t = tagOf(p);
     $('whoBadge').innerHTML = p && p.name ? `Signed in as <b>${esc(p.name)}</b>${t ? ` <span class="rtag" style="color:${esc(t.color)}">${esc(t.tag)}</span>` : ''}` : '';
-    ['btnMaker', 'btnMaker2'].forEach(id => show(id, AC.isAdmin()));
+    ['btnMaker', 'btnMaker2'].forEach(id => { show(id, AC.canPanel()); $(id).textContent = AC.isAdmin() ? (id === 'btnMaker' ? 'Maker Panel' : 'Maker Panel [F8]') : (id === 'btnMaker' ? 'Commands' : 'Commands [F8]'); });
   }
 
   $('btnAccess').onclick = async () => {
@@ -291,7 +361,8 @@
   let tab = 'players', consoleLines = [];
   function consoleLog(t) { consoleLines.push(t); if (consoleLines.length > 80) consoleLines.shift(); const c = $('mkConsoleLog'); if (c) { c.textContent = consoleLines.join('\n'); c.scrollTop = 1e9; } }
   AC.openPanel = function () {
-    if (!AC.isAdmin()) return;
+    if (!AC.canPanel()) return;
+    if (!AC.isAdmin()) tab = 'console';
     document.exitPointerLock && document.exitPointerLock();
     show('pause', false); show('makerPanel'); renderPanel();
   };
@@ -300,7 +371,7 @@
   $('mkClose').onclick = AC.closePanel;
   document.querySelectorAll('#makerPanel [data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; renderPanel(); });
   addEventListener('keydown', e => {
-    if (e.code === 'F8' && AC.isAdmin()) { e.preventDefault(); $('makerPanel').classList.contains('hidden') ? AC.openPanel() : AC.closePanel(); }
+    if (e.code === 'F8' && AC.canPanel()) { e.preventDefault(); $('makerPanel').classList.contains('hidden') ? AC.openPanel() : AC.closePanel(); }
     else if (e.code === 'Escape' && !$('makerPanel').classList.contains('hidden')) { e.preventDefault(); AC.closePanel(); }
   });
 
@@ -310,7 +381,9 @@
   function alertMsg(t) { $('mkMsg').textContent = t; clearTimeout(AC.msgT); AC.msgT = setTimeout(() => $('mkMsg').textContent = '', 5000); }
 
   async function renderPanel() {
-    document.querySelectorAll('#makerPanel [data-tab]').forEach(b => b.classList.toggle('sel', b.dataset.tab === tab));
+    if (!AC.isAdmin()) tab = 'console';
+    document.querySelectorAll('#makerPanel [data-tab]').forEach(b => { b.classList.toggle('sel', b.dataset.tab === tab); b.classList.toggle('hidden', !AC.isAdmin() && b.dataset.tab !== 'console'); });
+    $('mkTitle').textContent = AC.isAdmin() ? 'Maker Panel' : 'Commands';
     const body = $('mkBody');
     if (tab === 'players') {
       const users = (await O.listUsers().catch(() => [])).sort((a, b) => (b.uid === AC.makerUid) - (a.uid === AC.makerUid) || (b.admin - a.admin) || String(a.name).localeCompare(b.name));
@@ -348,7 +421,7 @@
         <div class="rolenew"><input id="mkRoleName" placeholder="New role name (e.g. Moderator)" maxlength="24"> <input id="mkRoleColor" type="color" value="#7aa0d0"> <button id="mkRoleAdd">Create role</button></div>
         ${roles.map(r => `<div class="role" data-r="${esc(r.id)}"><div class="rhead"><input class="rname" value="${esc(r.name)}" maxlength="24"> <input class="rcolor" type="color" value="${esc(r.color || '#c9a35a')}">
           <button class="rsave">Save</button> <button class="rdel">Delete</button></div>
-          <div class="rcmds">${cmds.map(c => `<label class="chk" title="${esc(CMDS[c].desc)}"><input type="checkbox" value="${c}" ${(r.commands || []).includes(c) ? 'checked' : ''}> /${c}</label>`).join('')}</div></div>`).join('') || '<p class="small">No roles yet.</p>'}`;
+          <div class="rcmds">${cmds.map(c => `<label class="chk" title="${esc(CMDS[c].desc)}"><input type="checkbox" value="${c}" ${(r.commands || []).includes(c) ? 'checked' : ''}> ${esc(CMDS[c].label)}</label>`).join('')}</div></div>`).join('') || '<p class="small">No roles yet.</p>'}`;
       $('mkRoleAdd').onclick = () => busy(async () => {
         const name = $('mkRoleName').value.trim(); if (!name) throw new Error('Name the role first.');
         const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'role';
@@ -379,14 +452,61 @@
       body.querySelectorAll('[data-del]').forEach(b => b.onclick = () => busy(() => O.deleteCode(b.dataset.del)));
       body.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { try { navigator.clipboard.writeText(b.dataset.copy); alertMsg('Copied.'); } catch (e) { } });
     }
-    if (tab === 'console') {
-      body.innerHTML = `<p class="small">Run any command (also works in chat: press Enter in-game and type /help). Commands that affect the world need an active journey.</p>
-        <pre id="mkConsoleLog" class="console"></pre><input id="mkConsoleIn" placeholder="/help" autocomplete="off">
-        <table class="mk small">${Object.entries(CMDS).map(([c, d]) => `<tr><td class="mono">/${c} ${esc(d.args)}</td><td>${esc(d.desc)}</td></tr>`).join('')}</table>`;
-      $('mkConsoleLog').textContent = consoleLines.join('\n');
-      $('mkConsoleIn').onkeydown = e => { if (e.key === 'Enter') { const v = e.target.value.trim(); e.target.value = ''; if (v) { consoleLog('> ' + v); if (api()) AC.chat(v[0] === '/' ? v : '/' + v); else AC.run(v.replace(/^\//, '')); } } };
-      $('mkConsoleIn').focus();
-    }
+    if (tab === 'console') renderCommands(body);
+  }
+
+  // ---------------------------------------------------------------- the command menu: pick players, press a command
+  const picked = new Set();
+  let cmdFilter = '', acctName = '';
+  function renderCommands(body) {
+    const players = [...(G() && G().started ? G().players.values() : [])];
+    [...picked].forEach(id => { if (!players.find(p => p.id === id)) picked.delete(id); });
+    const mine = Object.keys(CMDS).filter(c => AC.can(c) && (!cmdFilter || (CMDS[c].label + ' ' + CMDS[c].desc + ' ' + c).toLowerCase().includes(cmdFilter.toLowerCase())));
+    const cats = [...new Set(mine.map(c => CMDS[c].cat))];
+    const field = (c, p) => {
+      const id = `cp_${c}_${p.k}`;
+      if (p.type === 'num') return `<label class="cpar">${esc(p.label)} <input id="${id}" class="num" type="number" step="any" min="${p.min}" max="${p.max}" value="${p.def}"></label>`;
+      if (p.type === 'text') return `<input id="${id}" class="ctext" placeholder="${esc(p.label)}" maxlength="140" value="${esc(p.def || '')}">`;
+      const opts = typeof p.opts === 'function' ? p.opts() : p.opts;
+      return `<select id="${id}" title="${esc(p.label)}">${opts.map(([v, n]) => `<option value="${esc(v)}" ${String(v) === String(p.def) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
+    };
+    body.innerHTML = `<div class="cmdui">
+      <div class="cmdside">
+        <h3>Players here</h3>
+        ${players.length ? `<button class="pk ${picked.size === players.length ? 'on' : ''}" data-pall>Everyone</button>` +
+          players.map(p => `<button class="pk ${picked.has(p.id) ? 'on' : ''}" data-pid="${esc(p.id)}">${esc(p.name)}${p.local ? ' <span class="small">(you)</span>' : ''}${p.downed ? ' <span class="small">(fallen)</span>' : ''}</button>`).join('')
+          : '<p class="small">Start or join a journey to use player and world commands here.</p>'}
+        <h3>Any account</h3>
+        <input id="cmdAcct" placeholder="Name (for mute / ban)" maxlength="14" value="${esc(acctName)}" list="cmdNames"><datalist id="cmdNames"></datalist>
+        <p class="small">Mute and ban commands use the players picked above, or this name.</p>
+      </div>
+      <div class="cmdmain">
+        <input id="cmdFind" placeholder="Search commands..." value="${esc(cmdFilter)}">
+        ${cats.map(cat => `<h3>${esc(cat)}</h3><div class="cmdgrid">${mine.filter(c => CMDS[c].cat === cat).map(c => {
+          const C = CMDS[c];
+          return `<div class="cmd ${C.danger ? 'danger' : ''}" title="${esc(C.desc)}"><div class="chead"><b>${esc(C.label)}</b><span class="small">${esc(C.desc)}</span></div>
+            <div class="cbody">${(C.params || []).map(p => field(c, p)).join('')}<button data-run="${c}">${C.target === 'none' ? 'Run' : C.target === 'account' ? 'Apply' : 'Do it'}</button></div></div>`;
+        }).join('')}</div>`).join('') || '<p class="small">No commands match.</p>'}
+        <h3>Log</h3><pre id="mkConsoleLog" class="console"></pre>
+        <input id="mkConsoleIn" placeholder="Or type a command: /heal all" autocomplete="off">
+      </div></div>`;
+    $('mkConsoleLog').textContent = consoleLines.join('\n'); $('mkConsoleLog').scrollTop = 1e9;
+    body.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => { picked.has(b.dataset.pid) ? picked.delete(b.dataset.pid) : picked.add(b.dataset.pid); renderCommands(body); });
+    const all = body.querySelector('[data-pall]'); if (all) all.onclick = () => { if (picked.size === players.length) picked.clear(); else players.forEach(p => picked.add(p.id)); renderCommands(body); };
+    $('cmdFind').oninput = e => { cmdFilter = e.target.value; clearTimeout(AC.cfT); AC.cfT = setTimeout(() => { renderCommands(body); const f = $('cmdFind'); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }, 200); };
+    $('cmdAcct').oninput = e => { acctName = e.target.value.trim(); };
+    if (AC.isAdmin()) O.listUsers().then(us => { const dl = $('cmdNames'); if (dl) dl.innerHTML = us.filter(u => u.name).map(u => `<option value="${esc(u.name)}">`).join(''); }).catch(() => { });
+    body.querySelectorAll('[data-run]').forEach(b => b.onclick = async () => {
+      const c = b.dataset.run, C = CMDS[c], args = {};
+      (C.params || []).forEach(p => { const el = $(`cp_${c}_${p.k}`); if (el) args[p.k] = el.value; });
+      const pids = [...picked].filter(id => players.find(p => p.id === id));
+      const names = C.target === 'account' ? (pids.length ? pids.map(id => G().players.get(id).name) : acctName ? [acctName] : []) : [];
+      if (C.danger && !confirm(`${C.label}: are you sure?`)) return;
+      if (C.one && pids.length > 1) return consoleLog(`${C.label}: pick just one player.`);
+      consoleLog(`> ${C.label}${pids.length && C.target === 'players' ? ' -> ' + pids.map(id => G().players.get(id).name).join(', ') : names.length ? ' -> ' + names.join(', ') : ''}`);
+      await AC.exec(c, { pids, names }, args);
+    });
+    $('mkConsoleIn').onkeydown = e => { if (e.key === 'Enter') { const v = e.target.value.trim(); e.target.value = ''; if (v) { consoleLog('> ' + v); AC.run(v.replace(/^\//, '')); } } };
   }
 
   AC.boot();

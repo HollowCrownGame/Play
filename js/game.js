@@ -152,7 +152,7 @@
     Net.join(code, { status: t => $('netStatus').textContent = t, ready: () => { Net.send({ t: 'hello', name: opt.name, cls: opt.cls }); $('lobbyCode').textContent = code; show('title', false); show('lobby'); show('btnStart', false); show('lobbyWait'); }, error: e => $('netStatus').textContent = e });
   };
   $('btnStart').onclick = () => { Net.broadcast({ t: 'start', flags: G.flags }); beginGame(); };
-  function renderLobby() { $('lobbyList').innerHTML = (G.roster || []).map(r => `<li>${esc(r.name)} <span class="small">- ${HC.CLASSES[r.cls].name}${r.pid === Net.pid ? ' (you)' : ''}</span></li>`).join(''); }
+  function renderLobby() { $('lobbyList').innerHTML = (G.roster || []).map(r => `<li>${esc(r.name)}${r.pid === Net.pid ? ' <span class="small">(you)</span>' : ''}</li>`).join(''); }
 
   // ================================================================ start
   function beginGame() {
@@ -175,6 +175,7 @@
         (G.roster || []).forEach(addPlayer);
         me = G.players.get(Net.pid);
         if (!me) { addPlayer({ pid: Net.pid, name: opt.name, cls: opt.cls, slot: 0 }); me = G.players.get(Net.pid); }
+        applyLoadout(); HC.Items.onChange(applyLoadout);
         respawnAt(W.START, Math.PI);
         me.spawn = W.START.clone(); me.camPitch = 0.12;
         G.horror = { appT: 30 + Math.random() * 30, stepT: 45 + Math.random() * 40, mimicT: 80 + Math.random() * 60, bellT: 60 };
@@ -195,7 +196,16 @@
       hp: c.hp, maxHp: c.hp, downed: false, dead: false, act: 'idle', lantern: true, local: r.pid === Net.pid, netPos: new V3(), netYaw: 0, zone: 'wilds', relics: new Set(), vel: new V3() };
     p.netPos.copy(p.pos); G.players.set(r.pid, p);
     if (p.local) Object.assign(p, { st: 100, maxSt: 100, flasks: 4, maxFlasks: 4, actT: 0, actDur: 0, iframes: 0, stDelay: 0, camYaw: Math.PI, camPitch: 0.1, lock: null, fp: false,
-      queued: null, hitDone: false, bleed: 0, spawn: W.START.clone(), notesRead: new Set(), knowName: false, ash: 0, level: 1, vig: 0, end: 0, str: 0, found: new Set(), toys: new Set() });
+      queued: null, hitDone: false, bleed: 0, spawn: W.START.clone(), notesRead: new Set(), knowName: false, ash: 0, level: 1, vig: 0, end: 0, str: 0, found: new Set(), toys: new Set(),
+      buffs: {}, dmgBonus: 1, defMul: 1, spdMul: 1, stMul: 1, leech: 0, luck: 0, wb: 'longsword', wr: 0 });
+  }
+  // the equipped weapon (from the satchel, js/items.js) -> the model in your hand + trinket stats
+  function applyLoadout() {
+    if (!me) return;
+    const w = HC.Items.weapon(), v = HC.Items.visual(w ? w.b : null, w ? w.r : 0);
+    me.wb = w ? w.b : ''; me.wr = w ? w.r : 0;
+    me.avatar.setWeapon(w ? v.model : null, w ? v.style : 'sword', v.glow, v.amt);
+    recalcStats();
   }
   function removePlayer(pid) { const p = G.players.get(pid); if (!p) return; scene.remove(p.avatar.root); G.players.delete(pid); }
 
@@ -249,6 +259,7 @@
   }
   G.onEnemyDeath = function (e) {
     G.sound('growl', e.pos, 0.5);
+    if (Net.isHost() && HC.Items) HC.Items.rollLoot(e);
     event({ t: 'ash', amt: e.cfg.ash || 0, pos: [e.pos.x, e.pos.y, e.pos.z] });
     if (e.boss) event({ t: 'bossDead', key: e.type, pos: [e.pos.x, e.pos.y, e.pos.z] });
   };
@@ -329,6 +340,8 @@
       case 'snd': A.play(e.name, e.pos ? vec(e.pos) : null, e.vol); break;
       case 'shake': G.shakeA = Math.max(G.shakeA || 0, e.a); break;
       case 'proj': if (!Net.isHost()) HC.Proj.spawn(e.type, vec(e.pos), vec(e.vel), 0, false); break;
+      case 'pshot': if (e.by !== Net.pid) HC.Proj.spawn(e.type, vec(e.pos), vec(e.vel), 0, false, { grav: e.grav || 0 }); break;
+      case 'loot': case 'lootTake': if (HC.Items) HC.Items.onEvent(e); break;
       case 'flag':
         if (G.flags[e.k] === e.v) break;
         G.flags[e.k] = e.v; applyFlagsVisuals();
@@ -346,7 +359,7 @@
       case 'bossPhase': A.bossMusic(true, 2); areaBanner({ sentinel: 'THE SENTINEL WEEPS NO MORE', brother: 'IT SPEAKS WITH YOUR VOICE', bellbearer: 'THE BELL CRACKS', corvane: 'THE CAPTAIN REMEMBERS HIS OATH', king: 'THE KING REMEMBERS HIS OATH' }[e.key] || ''); break;
       case 'bossDead': endBoss(e.key, true, vec(e.pos)); break;
       case 'bossReset': if (G.activeBoss) endBoss(G.activeBoss, false); break;
-      case 'ash': if (me && me.pos.distanceTo(vec(e.pos)) < 70 && e.amt) { me.ash += e.amt; floatText(`+${e.amt} ashes`); } break;
+      case 'ash': if (me && me.pos.distanceTo(vec(e.pos)) < 70 && e.amt) { const n = Math.round(e.amt * (1 + (me.luck || 0))); me.ash += n; floatText(`+${n} ashes`); } break;
       case 'plate': {
         const pl = W.plates[e.i]; pl.vis = e.on;
         if (e.on) { pl.visT = G.t; A.play('stone', pl.pos, 0.8); if (!G.flags.gateOpen) message(G.players.size > 1 ? 'A rune ignites beneath your feet. Its twin lies on the far side of the hall.' : `A rune ignites. It will burn for ${PLATE_WINDOW} heartbeats... its twin lies across the hall.`); }
@@ -411,16 +424,20 @@
   }
   function playerState(p) {
     return { t: 'st', id: p.id, x: +p.pos.x.toFixed(2), y: +p.pos.y.toFixed(2), z: +p.pos.z.toFixed(2), yaw: +p.yaw.toFixed(2), look: +p.look.toFixed(2), act: p.act,
-      at: +(p.actT || p.avatar.actT || 0).toFixed(2), ad: +(p.actDur || p.avatar.actDur || 0).toFixed(2), sp: +(p.avatar.speed).toFixed(1), hp: Math.round(p.hp), mhp: p.maxHp, dn: p.downed ? 1 : 0, ln: p.lantern ? 1 : 0, cb: p.avatar.combo || 0 };
+      at: +(p.actT || p.avatar.actT || 0).toFixed(2), ad: +(p.actDur || p.avatar.actDur || 0).toFixed(2), sp: +(p.avatar.speed).toFixed(1), hp: Math.round(p.hp), mhp: p.maxHp, dn: p.downed ? 1 : 0, ln: p.lantern ? 1 : 0, cb: p.avatar.combo || 0, w: p.wb || '', wr: p.wr || 0 };
   }
   function applyPlayerState(p, s) {
     p.netPos.set(s.x, s.y, s.z); p.netYaw = s.yaw; p.look = s.look; p.hp = s.hp; p.maxHp = s.mhp; p.downed = !!s.dn;
+    if (!p.local && s.w !== undefined && (p.wb !== s.w || p.wr !== s.wr)) {
+      p.wb = s.w; p.wr = s.wr; const v = HC.Items.visual(s.w || null, s.wr);
+      p.avatar.setWeapon(s.w ? v.model : null, s.w ? v.style : 'sword', v.glow, v.amt);
+    }
     if (p.act !== s.act) {
       p.avatar.actT = s.at;
       // teammates' swings and rolls (their own client plays them for them)
       if (!p.local && ['attack', 'heavy', 'roll'].includes(s.act) && p.pos.distanceTo(me.pos) < 40) {
-        const cls = ((G.roster || []).find(r => r.pid === p.id) || {}).cls;
-        playActSound(s.act, p.pos, cls, s.cb || 0, s.act === 'roll' ? 0 : Math.max(0, 0.12 - (s.at || 0)));
+        const st = HC.STYLES[p.avatar.style] || {}, at = st[s.act === 'heavy' ? 'heavy' : 'light'] || {};
+        playActSound(s.act, p.pos, p.avatar.style, s.cb || 0, s.act === 'roll' ? 0 : Math.max(0, (st.ranged ? at.hit : 0.12) - (s.at || 0)));
       }
     }
     p.act = s.act; p.avatar.act = s.act; p.avatar.actDur = s.ad; p.avatar.speed = s.sp; p.avatar.combo = s.cb || 0;
@@ -468,6 +485,8 @@
     if (e.code === 'KeyF') { me.lantern = !me.lantern; me.avatar.setLantern(me.lantern); }
     if (e.code === 'KeyV') me.fp = !me.fp;
     if (e.code === 'KeyG') doPing();
+    if (e.code === 'KeyI') { e.preventDefault(); HC.Items.open(); }
+    if (/^Digit[1-4]$/.test(e.code)) HC.Items.quickUse(+e.code.slice(5) - 1);
     if (e.code === 'KeyM') { drawMap(); show('mapOverlay'); unlockPointer(); }
     if (e.code === 'Enter') { show('chatIn'); $('chatIn').focus(); unlockPointer(); e.preventDefault(); }
   });
@@ -509,52 +528,68 @@
   $('btnAgain').onclick = () => location.reload();
   $('mapClose').onclick = () => { show('mapOverlay', false); lock(); };
   document.querySelectorAll('#choice button').forEach(b => b.onclick = () => { show('choice', false); event({ t: 'ending', choice: b.dataset.end, by: me.name }); });
-  function overlayOpen() { return ['reader', 'dialog', 'choice', 'ending', 'shrineMenu', 'settings', 'makerPanel'].some(id => !$(id).classList.contains('hidden')) || !$('pause').classList.contains('hidden'); }
+  function overlayOpen() { return ['reader', 'dialog', 'choice', 'ending', 'shrineMenu', 'settings', 'makerPanel', 'inventory', 'trade'].some(id => !$(id).classList.contains('hidden')) || !$('pause').classList.contains('hidden'); }
   function closeOverlay() {
     if (!$('ending').classList.contains('hidden') || !$('choice').classList.contains('hidden')) return;
     if (!$('dialog').classList.contains('hidden') && G.dialogQueue && G.dialogQueue.length) { nextDialog(); return; }
-    ['reader', 'dialog', 'pause', 'shrineMenu', 'settings'].forEach(id => show(id, false));
+    ['reader', 'dialog', 'pause', 'shrineMenu', 'settings', 'inventory', 'trade'].forEach(id => show(id, false));
     lock();
   }
 
   // ================================================================ local player
   const C = () => HC.CLASSES[me.cls];
-  const busy = () => ['attack', 'heavy', 'roll', 'drink', 'hurt', 'downed', 'revive', 'cine'].includes(me.act);
+  const busy = () => ['attack', 'heavy', 'roll', 'drink', 'hurt', 'downed', 'revive', 'cine', 'throw'].includes(me.act);
   function startAct(a, dur) { me.act = a; me.actT = 0; me.actDur = dur; me.avatar.act = a; me.avatar.actT = 0; me.avatar.actDur = dur; me.hitDone = false; }
   function tryAttack(kind) {
-    if (!me || me.downed || me.dead || G.cine) return;
+    if (!me || me.downed || me.dead || G.cine || me.frozen) return;
     if (busy()) { if ((me.act === 'attack' || me.act === 'heavy') && me.actT > me.actDur * 0.45) me.queued = kind; return; }
-    const a = C()[kind === 'heavy' ? 'heavy' : 'light'];
+    const a = HC.Items.weaponStats(kind);
     if (me.st <= 0) return;
+    if (a.ranged && a.ammo && !HC.Items.ammoFor()) {
+      if (G.t - (G.noAmmoT || -9) > 2) { G.noAmmoT = G.t; message('No arrows left. Buy more at an ember, or take them from the fallen.'); }
+      return;
+    }
     me.st -= a.st; me.stDelay = 0.8;
     // chain light attacks into a three-hit combo when pressed in rhythm
     me.combo = kind !== 'heavy' && G.t - (me.lastAtkEnd || -9) < 0.55 ? ((me.combo || 0) + 1) % 3 : 0;
     me.avatar.combo = me.combo;
-    if (me.lock) faceTarget(); else if (moveDir().lengthSq() > 0) me.yaw = Math.atan2(moveDir().x, moveDir().z); else me.yaw = me.camYaw;
-    startAct(kind === 'heavy' ? 'heavy' : 'attack', a.dur); me.atk = a;
+    if (me.lock) faceTarget(); else if (a.ranged) me.yaw = me.camYaw; else if (moveDir().lengthSq() > 0) me.yaw = Math.atan2(moveDir().x, moveDir().z); else me.yaw = me.camYaw;
+    startAct(kind === 'heavy' ? 'heavy' : 'attack', a.dur); me.atk = a; me.avatar.atk = a;
     // your own swings play un-positioned at full volume (the camera sits metres behind you); clips peak ~0.2 s in
-    playActSound(kind === 'heavy' ? 'heavy' : 'attack', null, me.cls, me.combo, Math.max(0, a.hit - 0.2));
+    playActSound(kind === 'heavy' ? 'heavy' : 'attack', null, a.style, me.combo, Math.max(0, a.ranged ? a.hit : a.hit - 0.2));
   }
   // attack / heavy / roll sounds. pos = null -> your own character (full volume), else a teammate in 3D
-  function playActSound(act, pos, cls, combo = 0, delay = 0) {
-    const armor = cls === 'greatsword', v = pos ? 1.2 : 1.0, rev = pos ? 0.8 : 0.35;
+  function playActSound(act, pos, style, combo = 0, delay = 0) {
+    const S = HC.STYLES[style] || {}, armor = !!S.armor, v = pos ? 1.2 : 1.0, rev = pos ? 0.8 : 0.35;
     if (act === 'roll') A.play('dodge', pos, v, { armor, rev });
-    else if (act === 'heavy' || armor) A.play('heavyAttack', pos, v, { delay, armor, rev });   // the greatsword always swings heavy
+    else if (S.ranged) A.play('shot', pos, v, { delay, kind: style, heavy: act === 'heavy', rev });
+    else if (act === 'heavy' || armor) A.play('heavyAttack', pos, v, { delay, armor, rev });   // greatswords and hammers always swing heavy
     else A.play('attack', pos, v, { delay, combo, armor, rev });
   }
   function tryRoll() {
-    if (!me || me.downed || me.dead || G.cine || ['roll', 'downed', 'drink'].includes(me.act)) return;
+    if (!me || me.downed || me.dead || G.cine || me.frozen || ['roll', 'downed', 'drink', 'throw'].includes(me.act)) return;
     if ((me.act === 'attack' || me.act === 'heavy') && me.actT < me.actDur * 0.6) return;
     if (me.st < 5) return;
     me.st -= C().rollCost; me.stDelay = 0.8;
     const d = moveDir();
     me.rollDir = d.lengthSq() > 0 ? d.clone() : new V3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
     me.yaw = Math.atan2(me.rollDir.x, me.rollDir.z); if (d.lengthSq() === 0) me.yaw += Math.PI;
-    startAct('roll', 0.6); me.iframes = 0.42; playActSound('roll', null, me.cls);
+    startAct('roll', 0.6); me.iframes = 0.42; playActSound('roll', null, me.avatar.style);
   }
-  function tryDrink() { if (!me || busy() || me.downed || me.flasks <= 0) return; me.flasks--; startAct('drink', 1.15); me.healed = false; }
+  function tryDrink() { if (!me || busy() || me.downed || me.flasks <= 0) return; me.flasks--; startAct('drink', 1.15); me.healed = false; me.drinkFn = null; }
+  // potions from the satchel: same drinking animation, the item's own effect
+  function drinkItem(fn) { if (!me || busy() || me.downed || me.dead || me.frozen) return false; startAct('drink', 1.15); me.healed = false; me.drinkFn = fn; return true; }
+  function throwBomb(dmg) {
+    if (!me || busy() || me.downed || me.dead || me.frozen) return false;
+    me.yaw = me.lock ? Math.atan2(me.lock.pos.x - me.pos.x, me.lock.pos.z - me.pos.z) : me.camYaw;
+    startAct('throw', 0.9); me.bombDmg = dmg; me.thrown = false; return true;
+  }
   function faceTarget() { const t = me.lock; if (t) me.yaw = Math.atan2(t.pos.x - me.pos.x, t.pos.z - me.pos.z); }
-  const moveInput = () => new V3((keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) + G.input.stick.x, 0, (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0) + G.input.stick.y);
+  const moveInput = () => {
+    if (me && me.frozen) return new V3();
+    const c = me && me.confuseT > 0 ? -1 : 1;
+    return new V3(((keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) + G.input.stick.x) * c, 0, ((keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0) + G.input.stick.y) * c);
+  };
   function moveDir() {
     const i = moveInput(); if (i.lengthSq() === 0) return i;
     const f = new V3(Math.sin(me.camYaw), 0, Math.cos(me.camYaw)), r = new V3(-Math.cos(me.camYaw), 0, Math.sin(me.camYaw));
@@ -571,9 +606,22 @@
     });
     me.lock = best;
   }
-  const dmgMul = () => (1 + me.str * 0.06) * (me.relics.has('oathbrand') ? 1.15 : 1);
+  const dmgMul = () => (1 + me.str * 0.06) * (me.relics.has('oathbrand') ? 1.15 : 1) * (me.dmgBonus || 1) * (me.power || 1);
+  // one enemy takes one hit from you (sword swing, arrow, orb, bomb...)
+  function hitEnemy(e, dmg, poise, o = {}) {
+    const hp = e.pos.clone().setY(e.pos.y + Math.min(e.cfg.h * 0.6, 2.2));
+    const metal = ['knight', 'corvane', 'king', 'sentinel'].includes(e.type);
+    if (o.fire || o.perk === 'fire') { dmg *= 1.2; HC.FX.spawn('ember', hp); }
+    HC.FX.spawn(e.type === 'sentinel' ? 'stone' : metal ? 'spark' : 'blood', hp);
+    if (e.type !== 'watcher') A.play(e.type === 'sentinel' ? 'stone' : metal ? 'hit_armor' : o.heavy ? 'hit_heavy' : 'hit', hp, o.ranged ? 0.7 : 0.9);
+    const steal = (o.perk === 'leech' ? 0.06 : 0) + (me.leech || 0);
+    if (steal && e.type !== 'watcher') me.hp = Math.min(me.maxHp, me.hp + dmg * steal);
+    if (Net.isHost()) e.takeHit(dmg, poise, me.pos, me.id);
+    else { Net.send({ t: 'req', e: { t: 'hit', id: e.id, dmg, poise, from: [me.pos.x, me.pos.y, me.pos.z] } }); if (e.type !== 'watcher') e.rig.flash = 0.25; }
+  }
   function performHit() {
     const a = me.atk, ring = me.relics.has('ring') && me.act === 'heavy';
+    if (a.ranged) { fireShot(a); return; }
     let hitAny = false;
     G.enemies.forEach(e => {
       if (!e.alive || !e.root.visible) return;
@@ -581,21 +629,46 @@
       if (d > a.range + e.cfg.r + (ring ? 3 : 0) || Math.abs(e.pos.y - me.pos.y) > 3.5) return;
       if (Math.abs(HC.angDiff(me.yaw, Math.atan2(dx, dz))) > a.arc / 2 && d > e.cfg.r + 0.6) return;
       hitAny = true;
-      const dmg = (a.dmg * (0.9 + Math.random() * 0.2) + (ring ? 18 : 0)) * dmgMul();
-      const hp = e.pos.clone().setY(e.pos.y + Math.min(e.cfg.h * 0.6, 2.2));
-      const metal = ['knight', 'corvane', 'king', 'sentinel'].includes(e.type);
-      HC.FX.spawn(e.type === 'sentinel' ? 'stone' : metal ? 'spark' : 'blood', hp);
-      if (e.type !== 'watcher') A.play(e.type === 'sentinel' ? 'stone' : metal ? 'hit_armor' : (me.act === 'heavy' || me.cls === 'greatsword') ? 'hit_heavy' : 'hit', hp, 0.9);
-      if (Net.isHost()) e.takeHit(dmg, a.poise, me.pos, me.id);
-      else { Net.send({ t: 'req', e: { t: 'hit', id: e.id, dmg, poise: a.poise, from: [me.pos.x, me.pos.y, me.pos.z] } }); if (e.type !== 'watcher') e.rig.flash = 0.25; }
+      hitEnemy(e, (a.dmg * (0.9 + Math.random() * 0.2) + (ring ? 18 : 0)) * dmgMul(), a.poise, { perk: a.perk, heavy: me.act === 'heavy' || HC.STYLES[a.style].armor });
     });
     if (ring) { const p = me.pos.clone().add(new V3(Math.sin(me.yaw) * 2.5, 1.2, Math.cos(me.yaw) * 2.5)); HC.FX.spawn('ember', p); A.play('fire', p, 0.8); }
     if (hitAny) { G.hitstop = 0.06; G.shakeA = Math.max(G.shakeA || 0, me.act === 'heavy' ? 0.25 : 0.12); }
   }
+  // bows, crossbows, staffs: shoot toward the centre of the screen (or the locked-on enemy)
+  function aimPoint() {
+    if (me.lock && me.lock.alive) return me.lock.pos.clone().setY(me.lock.pos.y + Math.min(me.lock.cfg.h, 3) * 0.55);
+    const f = new V3(); camera.getWorldDirection(f);
+    const p = camera.position.clone();
+    for (let i = 0; i < 140; i++) { p.addScaledVector(f, 0.6); if (p.y < W.heightAt(p.x, p.z) || (p.x > 1500 && !W.walkable(p.x, p.z))) break; }
+    return p;
+  }
+  function fireShot(a) {
+    let ammo = null;
+    if (a.ammo) { ammo = HC.Items.ammoFor(); if (!ammo) return; HC.Items.takeBase(ammo, 1); }
+    const from = me.pos.clone().add(new V3(Math.sin(me.yaw) * 0.55, 1.45, Math.cos(me.yaw) * 0.55));
+    const to = aimPoint(), n = a.n || 1;
+    for (let i = 0; i < n; i++) {
+      const dir = to.clone().sub(from); const dist = dir.length(); dir.normalize();
+      if (n > 1) dir.applyAxisAngle(new V3(0, 1, 0), (i - (n - 1) / 2) * 0.09);
+      const vel = dir.multiplyScalar(a.speed);
+      if (a.grav) vel.y += a.grav * (dist / a.speed) * 0.5;          // lob slightly so the arrow lands on the aim point
+      const fire = ammo === 'firearrow' || a.proj === 'orb' || a.proj === 'wave' || a.perk === 'fire';
+      const dmg = a.dmg * (0.9 + Math.random() * 0.2) * dmgMul() * (ammo === 'firearrow' ? 1.4 : 1);
+      HC.Proj.spawn(a.proj, from, vel, dmg, true, { friendly: true, poise: a.poise, pierce: !!a.pierce, grav: a.grav || 0, perk: a.perk, fire, life: 3 });
+      event({ t: 'pshot', type: a.proj, pos: from.toArray(), vel: vel.toArray(), grav: a.grav || 0, by: Net.pid });
+    }
+    if (a.proj === 'wave' || a.proj === 'orb') HC.FX.spawn('ember', from);
+  }
+  G.projHit = (e, p) => hitEnemy(e, p.dmg, p.poise || 10, { fire: p.fire, perk: p.perk, ranged: true });
+  G.bombBurst = function (p) {
+    G.fx('ring', p.pos, { color: 0xff6a20, r: 4, life: 0.6 }); G.fx('ember', p.pos); G.sound('boom', p.pos, 0.9);
+    G.enemies.forEach(e => { if (e.alive && e.root.visible && e.pos.distanceTo(p.pos) < 3.8 + e.cfg.r) hitEnemy(e, p.dmg * dmgMul(), 60, { fire: true, ranged: true }); });
+  };
   function receiveDamage(dmg, src, kind) {
     if (!me || me.downed || me.dead || G.ended) return;
     if (me.god && kind !== 'admin') return;
     if (me.iframes > 0 && kind !== 'watcher' && kind !== 'admin') return;
+    if (kind !== 'admin') dmg *= me.defMul || 1;
     const toSrc = Math.atan2(src.x - me.pos.x, src.z - me.pos.z);
     const blocking = me.act === 'block' && Math.abs(HC.angDiff(me.yaw, toSrc)) < 1.4 && kind !== 'watcher' && kind !== 'fire' && kind !== 'admin';
     if (blocking && me.st > 0) {
@@ -639,10 +712,28 @@
     $('fade').classList.add('on'); setTimeout(() => $('fade').classList.remove('on'), 600);
   }
   function recalcStats() {
-    const c = C();
-    me.maxHp = c.hp + me.vig * 12 + (me.relics.has('shard') ? 20 : 0);
+    const c = C(), b = HC.Items.bonus(), bf = me.buffs || {};
+    me.maxHp = Math.round(c.hp + me.vig * 12 + (me.relics.has('shard') ? 20 : 0) + b.hp);
     me.maxSt = 100 + me.end * 10;
-    me.maxFlasks = 4 + (me.relics.has('shard') ? 1 : 0) + (me.relics.has('charm') ? 1 : 0);
+    me.maxFlasks = 4 + (me.relics.has('shard') ? 1 : 0) + (me.relics.has('charm') ? 1 : 0) + (me.bonusFlasks || 0);
+    me.dmgBonus = (1 + b.dmg) * (bf.might > 0 ? 1.3 : 1);
+    me.defMul = (1 - Math.min(0.6, b.def)) * (bf.iron > 0 ? 0.6 : 1);
+    me.spdMul = 1 + b.speed; me.stMul = (1 + b.stam) * (bf.breath > 0 ? 2 : 1); me.leech = b.leech; me.luck = b.luck;
+    me.hp = Math.min(me.hp, me.maxHp); me.flasks = Math.min(me.flasks, me.maxFlasks);
+  }
+  // timed effects: potion buffs, regeneration, admin effects (burn, blindness, confusion)
+  function tickEffects(dt) {
+    const bf = me.buffs; let re = false;
+    for (const k in bf) { bf[k] -= dt; if (bf[k] <= 0) { delete bf[k]; re = true; if (k !== 'regen') message(`${{ might: 'Might', iron: 'Ironskin', breath: 'Stamina tonic' }[k] || k} wore off.`); } }
+    if (bf.regen > 0 && !me.downed) me.hp = Math.min(me.maxHp, me.hp + me.maxHp * 0.03 * dt);
+    if (re) recalcStats();
+    if (me.burnT > 0) {
+      me.burnT -= dt; me.burnAcc = (me.burnAcc || 0) + dt;
+      if (me.burnAcc > 0.5) { me.burnAcc = 0; if (!me.god && !me.downed) { me.hp -= me.maxHp * 0.03; HC.FX.spawn('ember', me.pos.clone().setY(me.pos.y + 1)); if (me.hp <= 0) { me.hp = 0; goDown(); } } }
+    }
+    if (me.confuseT > 0) me.confuseT -= dt;
+    if (me.blindT > 0) { me.blindT -= dt; $('blind').style.opacity = Math.min(1, me.blindT); } else $('blind').style.opacity = 0;
+    if (me.infSt) me.st = me.maxSt;
   }
 
   // ================================================================ interactables
@@ -752,7 +843,9 @@
     const stat = (k, label, val) => `<button data-lvl="${k}" ${me.ash < cost ? 'disabled' : ''}>${label} <span class="small">(${val})</span></button>`;
     $('shrineBody').innerHTML = `<p class="small">Health, stamina and flasks restored. Ashes: <b>${me.ash}</b> &nbsp; Level ${me.level} &nbsp; Next level: ${cost}</p>
       <div class="row">${stat('vig', 'Vigor +12 HP', me.vig)}${stat('end', 'Endurance +10 ST', me.end)}${stat('str', 'Strength +6% dmg', me.str)}</div>
-      <h3>Travel to an ember you have woken</h3><div class="row">${Object.entries(W.SHRINES).filter(([id]) => me.found.has(id) && id !== G.shrineAt).map(([id, s]) => `<button data-go="${id}">${s.name}</button>`).join('') || '<span class="small">No other embers woken yet.</span>'}</div>`;
+      <h3>Travel to an ember you have woken</h3><div class="row">${Object.entries(W.SHRINES).filter(([id]) => me.found.has(id) && id !== G.shrineAt).map(([id, s]) => `<button data-go="${id}">${s.name}</button>`).join('') || '<span class="small">No other embers woken yet.</span>'}</div>
+      <div id="shopBox"></div>`;
+    HC.Items.renderShop($('shopBox'));
     $('shrineBody').querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { if (me.ash < cost) return; me.ash -= cost; me.level++; me[b.dataset.lvl]++; recalcStats(); me.hp = me.maxHp; me.st = me.maxSt; A.play('pickup', null, 0.6); renderShrineMenu(); });
     $('shrineBody').querySelectorAll('[data-go]').forEach(b => b.onclick = () => { const s = W.SHRINES[b.dataset.go]; show('shrineMenu', false); lock(); me.spawn = s.pos.clone().add(new V3(0, 0, 2.5)); travel(me.spawn, 0); });
   }
@@ -993,11 +1086,12 @@
     const sig = ['tears', 'silence', 'bell', 'oath'].filter(s => G.flags['sigil_' + s]).map(s => `<span class="sig">Sigil of ${{ tears: 'Tears', silence: 'Silence', bell: 'the Bell', oath: 'the Oath' }[s]}</span>`).join('');
     $('relics').innerHTML = [...me.relics].map(r => `<span>${HC.RELICS[r][0]}</span>`).join('') + (G.flags.key ? '<span>Crypt Key</span>' : '') + sig;
     $('ashes').textContent = `${me.ash} ashes · Lv ${me.level}`;
+    HC.Items.hud();
     $('objective').innerHTML = `<small>OBJECTIVE</small>${objective()[0]}`;
     $('area').textContent = W.areaName(me.zone);
     $('party').innerHTML = [...G.players.values()].filter(p => !p.local).map(p => `<div class="pm ${p.downed ? 'down' : ''}"><span>${esc(p.name)}${p.downed ? ' (fallen)' : ''}</span><div class="bar"><i style="width:${p.hp / p.maxHp * 100}%;background:#8a2a22"></i></div></div>`).join('');
     if (G.activeBoss) { const b = G.bossE[G.activeBoss]; $('bossFill').style.width = (b.hp / b.maxHp * 100) + '%'; }
-    show('crosshair', me.fp);
+    show('crosshair', me.fp || !!(HC.STYLES[me.avatar.style] || {}).ranged);
     if (me.downed) $('bleed').textContent = `(${Math.ceil(me.bleed)})`;
   }
 
@@ -1039,13 +1133,14 @@
     if (raw > 0 && raw < 0.5) dynRes(raw);
     let dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (G.hitstop > 0) { G.hitstop -= dt; dt *= 0.15; }
+    dt *= G.timeScale || 1;
     G.t += dt; update(dt);
     if (composer) { finalPass.uniforms.time.value = G.t % 100; finalPass.uniforms.dmg.value = Math.min(1, G.dmgFlash || 0); composer.render(); }
     else renderer.render(scene, camera);
   }
   function update(dt) {
     if (!me) return;
-    controlLocal(dt);
+    controlLocal(dt); tickEffects(dt); HC.Items.update(dt, G.t);
     G.players.forEach(p => {
       if (!p.local) { const prev = p.pos.clone(); p.pos.lerp(p.netPos, 1 - Math.exp(-12 * dt)); p.vel.copy(p.pos).sub(prev).divideScalar(Math.max(dt, 1e-3)); p.yaw += HC.angDiff(p.yaw, p.netYaw) * Math.min(1, dt * 12); p.avatar.actT += dt; }
       p.zone = W.zoneAt(p.pos.x, p.pos.z); p.avatar.pos.copy(p.pos); p.avatar.yaw = p.yaw; p.avatar.update(dt);
@@ -1055,7 +1150,7 @@
     G.enemies.forEach(e => {
       if (host) {
         const near = e.boss || e.type === 'watcher' || ai.some(p => p.pos.distanceTo(e.pos) < 90);
-        if (near && (!G.cine || e.boss)) e.hostUpdate(dt, ai);
+        if (near && (!G.cine || e.boss) && !G.peace) e.hostUpdate(dt, ai);
       } else e.clientUpdate(dt);
       const d = e.pos.distanceTo(camera.position);
       const range = (me.pos.x > 1500 ? 60 : (me.zone === 'forest' ? 60 : 85)) * (W.viewMul || 1);   // beyond this the fog has swallowed them
@@ -1094,7 +1189,7 @@
     const inputLocked = overlayOpen() || document.activeElement === $('chatIn') || !$('mapOverlay').classList.contains('hidden');
     if (inputLocked) dir.set(0, 0, 0);
     me.stDelay -= dt;
-    if (me.stDelay <= 0 && !busy()) me.st = Math.min(me.maxSt, me.st + dt * (me.act === 'block' ? 12 : 34));
+    if (me.stDelay <= 0 && !busy()) me.st = Math.min(me.maxSt, me.st + dt * (me.act === 'block' ? 12 : 34) * (me.stMul || 1));
     const prev = me.pos.clone();
     if (me.act === 'downed') {
       if (!me.dead) { me.bleed -= dt; if (me.bleed <= 0 && Net.mode !== 'solo') die(false); }
@@ -1110,7 +1205,22 @@
       if (me.actT >= me.actDur) { const q = me.queued; me.queued = null; me.lastAtkEnd = G.t; startAct('idle', 0); if (q) tryAttack(q); }
     } else if (me.act === 'drink') {
       speed = c.speed * 0.35;
-      if (!me.healed && me.actT > 0.6) { me.healed = true; me.hp = Math.min(me.maxHp, me.hp + me.maxHp * 0.45); A.play('flask', me.pos, 0.8); HC.FX.spawn('ember', me.pos.clone().setY(me.pos.y + 1)); }
+      if (!me.healed && me.actT > 0.6) {
+        me.healed = true;
+        if (me.drinkFn) { me.drinkFn(); me.drinkFn = null; } else me.hp = Math.min(me.maxHp, me.hp + me.maxHp * 0.45);
+        A.play('flask', me.pos, 0.8); HC.FX.spawn('ember', me.pos.clone().setY(me.pos.y + 1));
+      }
+      if (me.actT >= me.actDur) startAct('idle', 0);
+    } else if (me.act === 'throw') {
+      if (!me.thrown && me.actT > 0.42) {
+        me.thrown = true;
+        const from = me.pos.clone().add(new V3(Math.sin(me.yaw) * 0.4, 1.7, Math.cos(me.yaw) * 0.4)), to = aimPoint();
+        const flat = Math.min(16, Math.max(3, Math.hypot(to.x - from.x, to.z - from.z))), t = flat / 13;
+        const vel = new V3(Math.sin(me.yaw) * 13, (to.y - from.y + 0.5 * 12 * t * t) / t, Math.cos(me.yaw) * 13);
+        HC.Proj.spawn('bomb', from, vel, me.bombDmg || 70, true, { friendly: true, grav: 12, life: 3, fire: true });
+        event({ t: 'pshot', type: 'bomb', pos: from.toArray(), vel: vel.toArray(), grav: 12, by: Net.pid });
+        A.play('heavyAttack', null, 0.7, { armor: false, rev: 0.3 });
+      }
       if (me.actT >= me.actDur) startAct('idle', 0);
     } else if (me.act === 'hurt' || me.act === 'rest' || me.act === 'revive') {
       if (me.actT >= me.actDur) startAct('idle', 0);
@@ -1123,7 +1233,7 @@
       const blocking = (mouse.r || keys.KeyK) && !inputLocked;   // right mouse / touch Block button / K key
       // touch players sprint by pushing the stick: stop at 25 stamina so there is always enough left to attack or roll
       const sprint = keys.ShiftLeft && dir.lengthSq() > 0 && me.st > (G.touch ? 25 : 0) && !blocking;
-      speed = c.speed * (blocking ? 0.45 : sprint ? 1.65 : 1) * (me.speedMul || 1);
+      speed = c.speed * (blocking ? 0.45 : sprint ? 1.65 : 1) * (me.speedMul || 1) * (me.spdMul || 1);
       if (sprint) { me.st -= dt * 15; me.stDelay = 0.5; }
       if (blocking) { if (me.act !== 'block') startAct('block', 0); } else if (me.act === 'block') startAct('idle', 0);
       if (me.lock && (!me.lock.alive || me.lock.pos.distanceTo(me.pos) > 34)) me.lock = null;
@@ -1139,7 +1249,7 @@
       if (plant === true || (plant === null && me.stepAcc > 1.1)) {
         me.stepAcc = 0;
         const surface = W.isUnder(me.zone) || me.zone === 'citadel' ? 'stone' : me.zone === 'forest' ? 'grass' : 'dirt';
-        A.play('step', me.pos, 0.55, { wet: W.heightAt(me.pos.x, me.pos.z) < W.waterAt(me.pos.x, me.pos.z), rev: 0.3, surface, armor: me.cls === 'greatsword' });
+        A.play('step', me.pos, 0.55, { wet: W.heightAt(me.pos.x, me.pos.z) < W.waterAt(me.pos.x, me.pos.z), rev: 0.3, surface, armor: !!(HC.STYLES[me.avatar.style] || {}).armor });
       }
     } else speed = 0;
     if (me.act === 'block' && me.lock) faceTarget();
@@ -1188,7 +1298,7 @@
   }
   function envUpdate(dt) {
     const e = ENV[me.zone] || ENV.village, k = 1 - Math.exp(-dt * 1.2);
-    let d = e.d; if (me.zone === 'kingArena' && G.flags.dead_king) d *= 0.6;
+    let d = e.d * (G.fogMul || 1); if (me.zone === 'kingArena' && G.flags.dead_king) d *= 0.6;
     scene.fog.density += (d - scene.fog.density) * k;
     tmpC.setHex(e.fog); scene.fog.color.lerp(tmpC, k); scene.background.copy(scene.fog.color);
     hemi.intensity += (e.hemi - hemi.intensity) * k; moon.intensity += (e.moon - moon.intensity) * k;
@@ -1199,7 +1309,7 @@
     G.players.forEach(p => { if (!p.lantern || p.dead) return; cands.push({ pos: p.pos.clone().add(new V3(Math.sin(p.yaw) * 0.3, 1.1, Math.cos(p.yaw) * 0.3)), color: 0xffa860, intensity: p.local ? 2.6 : 2.0, dist: p.local ? 18 : 15, flicker: 0.08, pri: p.local ? -1e6 : -1000 }); });
     W.lightSources.forEach(s => { if (s.intensity > 0) cands.push({ pos: s.pos, color: s.color, intensity: s.intensity, dist: s.dist, flicker: s.flicker, pri: 0 }); });
     if (G.activeBoss) { const b = G.bossE[G.activeBoss]; if (b.phase === 2) cands.push({ pos: b.pos.clone().setY(b.pos.y + 2.5), color: 0xff4010, intensity: 3, dist: 16, flicker: 0.3, pri: -500 }); }
-    HC.Proj.list.forEach(p => { if (p.type !== 'bolt') cands.push({ pos: p.pos, color: p.type === 'pale' ? 0x9ad0ff : 0xff6a20, intensity: 2, dist: 8, flicker: 0, pri: -200 }); });
+    HC.Proj.list.forEach(p => { if (p.type !== 'bolt' && p.type !== 'arrow') cands.push({ pos: p.pos, color: p.type === 'pale' ? 0x9ad0ff : 0xff6a20, intensity: 2, dist: 8, flicker: 0, pri: -200 }); });
     const cp = camera.position;
     cands.forEach(c => c.score = c.pri + c.pos.distanceToSquared(cp)); cands.sort((a, b) => a.score - b.score);
     lightPool.forEach((l, i) => {
@@ -1226,7 +1336,9 @@
   }
 
   // used by js/access.js (admin commands)
-  G.api = { me: () => me, message, chatLine, areaBanner, floatText, revived, receiveDamage, lock };
+  G.api = { me: () => me, message, chatLine, areaBanner, floatText, revived, receiveDamage, lock, recalc: () => recalcStats(), drink: drinkItem, throwBomb,
+    startAct, grantRelic, ringBell, goDown, respawnAt, travel, camera: () => camera,
+    resetEnemies: () => { if (Net.isHost()) resetWorldOnDeath(); } };
   HC.debug = { tp: (x, z) => { me.pos.set(x, W.heightAt(x, z), z); }, flags: () => G.flags, me: () => me, G, cam: () => camera, W,
     step(n = 60) { for (let i = 0; i < n; i++) { G.t += 1 / 60; update(1 / 60); } },
     bench(n = 20) { const gl = renderer.getContext(), t0 = performance.now(); for (let i = 0; i < n; i++) { update(1 / 60); if (composer) composer.render(); else renderer.render(scene, camera); } gl.finish(); return ((performance.now() - t0) / n).toFixed(1) + ' ms/frame, calls=' + renderer.info.render.calls + ', tris=' + renderer.info.render.triangles; } };

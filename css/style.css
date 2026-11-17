@@ -237,3 +237,73 @@ body.touch .bar { width: min(280px, 34vw); }
   .big { padding: 10px; font-size: 16px; }
 }
 #tKnob.sprint { background: rgba(200, 70, 50, 0.7); box-shadow: 0 0 14px rgba(220, 80, 50, 0.6); }
+
+/* ---------- items: satchel, quick bar, trading post ---------- */
+.big.play { font-size: 22px; padding: 16px; letter-spacing: 0.25em; border-color: var(--gold); }
+#quickbar { position: fixed; left: 28px; bottom: 26px; display: flex; gap: 6px; align-items: flex-end; z-index: 9; }
+#hud.hidden ~ #quickbar, #quickbar:empty { display: none; }
+#quickbar .qw { border: 1px solid #444; background: rgba(10, 9, 8, 0.7); padding: 6px 10px; font-family: 'Cinzel', serif; font-size: 13px; display: flex; gap: 8px; align-items: center; min-height: 44px; }
+#quickbar .qw .ammo { color: var(--dim); font-family: 'EB Garamond', serif; font-size: 15px; }
+#quickbar .qs { position: relative; width: 44px; height: 44px; border: 1px solid #333; background: rgba(10, 9, 8, 0.7); display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; pointer-events: auto; }
+#quickbar .qs small { position: absolute; left: 3px; top: 1px; font-size: 10px; color: var(--dim); }
+#quickbar .qs i { position: absolute; right: 3px; bottom: 1px; font-size: 11px; font-style: normal; color: var(--ink); }
+body.touch #quickbar { left: 50%; transform: translateX(-50%); bottom: 8px; }
+body.touch #quickbar .qw span:not(.ammo) { display: none; }
+#blind { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 9; transition: opacity 0.3s; }
+.panel.inv, .panel.trade { max-width: 900px; }
+.invcols { display: grid; grid-template-columns: 1fr 280px; gap: 16px; margin-top: 10px; }
+#invEquip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.eslot { border: 1px solid #3a3226; padding: 6px 10px; min-width: 150px; background: rgba(0, 0, 0, 0.35); cursor: pointer; }
+.eslot small { display: block; font-family: 'Cinzel', serif; font-size: 10px; color: var(--dim); letter-spacing: 0.1em; }
+.eslot.empty { cursor: default; opacity: 0.6; }
+.qrow { display: flex; gap: 4px; align-items: center; }
+.qslot { position: relative; width: 42px; height: 42px; border: 1px solid #3a3226; display: flex; align-items: center; justify-content: center; font-size: 19px; background: rgba(0, 0, 0, 0.35); cursor: pointer; }
+.qslot small { position: absolute; left: 3px; top: 0; font-size: 10px; color: var(--dim); }
+.qslot i { position: absolute; right: 3px; bottom: 0; font-size: 11px; font-style: normal; }
+#invGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 5px; }
+.islot { position: relative; aspect-ratio: 1; border: 1px solid #2a241c; background: rgba(0, 0, 0, 0.4); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.islot .ico { font-size: 24px; }
+.islot i { position: absolute; right: 3px; bottom: 1px; font-size: 12px; font-style: normal; }
+.islot em { position: absolute; left: 3px; top: 1px; font-size: 10px; font-style: normal; color: var(--gold); font-family: 'Cinzel', serif; }
+.islot.sel { box-shadow: 0 0 0 2px var(--gold) inset; background: rgba(70, 55, 30, 0.5); }
+.islot.empty { cursor: default; border-color: #1a1612; }
+#invInfo { border: 1px solid #3a3226; padding: 10px 12px; background: rgba(0, 0, 0, 0.35); align-self: start; }
+#invInfo h3 { margin: 0 0 2px; font-family: 'Cinzel', serif; font-size: 17px; }
+#invInfo p { margin: 4px 0; }
+#invInfo .row, .inv .row, .trade .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+#invInfo button, .trade button { padding: 6px 10px; font-size: 12px; }
+.trade .tabs { display: flex; gap: 6px; margin: 8px 0; }
+.trade .tabs button.sel { border-color: var(--gold); color: #fff; background: rgba(70, 55, 30, 0.6); }
+.tcols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.tcols h3 { font-family: 'Cinzel', serif; font-size: 14px; color: var(--gold); margin: 8px 0 4px; }
+.tpick { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid #2a241c; margin: 3px 0; cursor: pointer; background: rgba(0, 0, 0, 0.3); }
+.tpick.on { border-color: var(--gold); background: rgba(70, 55, 30, 0.5); }
+.tpick.eq { opacity: 0.55; }
+.tpick input.num, .inv input.num { width: 60px; padding: 2px 4px; font-size: 14px; }
+.toffer { border: 1px solid #3a3226; padding: 8px 10px; margin: 8px 0; background: rgba(0, 0, 0, 0.3); }
+.toffer small { display: block; font-family: 'Cinzel', serif; font-size: 11px; color: var(--dim); margin-top: 6px; }
+.shop { display: flex; flex-wrap: wrap; gap: 6px; }
+.shop button { padding: 6px 10px; font-size: 13px; }
+.shop button .small { margin-left: 6px; }
+
+/* ---------- command menu ---------- */
+.cmdui { display: grid; grid-template-columns: 210px 1fr; gap: 14px; margin-top: 10px; }
+.cmdside h3, .cmdmain h3 { font-family: 'Cinzel', serif; font-size: 13px; color: var(--gold); letter-spacing: 0.1em; margin: 10px 0 6px; }
+.cmdside .pk { display: block; width: 100%; text-align: left; margin: 3px 0; padding: 7px 10px; font-size: 13px; }
+.cmdside .pk.on { border-color: var(--gold); background: rgba(90, 70, 30, 0.75); color: #fff; }
+.cmdside input { width: 100%; }
+#cmdFind { width: 100%; }
+.cmdgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px; }
+.cmd { border: 1px solid #3a3226; background: rgba(0, 0, 0, 0.35); padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
+.cmd.danger { border-color: #6a2a22; }
+.cmd .chead b { font-family: 'Cinzel', serif; font-size: 13px; margin-right: 6px; }
+.cmd .chead .small { font-size: 12px; }
+.cmd .cbody { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: auto; }
+.cmd .cbody button { margin-left: auto; border-color: #7a5a2a; color: var(--gold); }
+.cmd .cpar { font-size: 13px; color: var(--dim); }
+.cmd .ctext { flex: 1; min-width: 100px; }
+.cmd select { max-width: 150px; }
+@media (max-width: 760px) {
+  .invcols, .cmdui, .tcols { grid-template-columns: 1fr; }
+  #invGrid { grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); }
+}
