@@ -2,7 +2,7 @@
 (function () {
   const S = HC.Settings = {};
   // phones, tablets, Chromebooks and devices reporting <= 4 GB RAM get the memory-saving paths
-  HC.lowMem = matchMedia('(pointer: coarse)').matches || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent) || (navigator.deviceMemory || 8) <= 4;
+  HC.lowMem = /[?&]lowmem\b/.test(location.search) || matchMedia('(pointer: coarse)').matches || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent) || (navigator.deviceMemory || 8) <= 4;
   // Load breadcrumbs: every loading stage is written to localStorage. If the browser kills the tab (out of memory)
   // the crumb survives the reload, so the next visit knows where it died and switches to safe mode.
   const CRUMB = 'hc_loadcrumb_v1';

@@ -37,12 +37,33 @@
       const done = () => { n++; step(); setTimeout(next, 0); };
       if (!buf) { done(); return; }
       loader.parse(buf.buffer, '', g => {
+        if (HC.lowMem) shrinkTextures(g.scene, HC.safeLevel ? 128 : 256);
         HC.assets[name] = g.scene;
         if (name === 'anims') { HC.CLIPS = {}; g.animations.forEach(c => { HC.CLIPS[c.name] = c; }); }
         done();
       }, e => { console.error('model', name, e); done(); });
     };
     next();
+  }
+  // phones: redraw every model texture at <= max px on a small canvas so the full-size decoded image can be freed
+  // (a 1024 px texture holds ~4 MB decoded; 69 models carry well over a hundred of them)
+  const shrunk = new WeakMap();   // weak, so the original full-size images can still be garbage-collected
+  function shrinkTextures(root, max) {
+    root.traverse(o => {
+      if (!o.isMesh) return;
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
+        ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'].forEach(k => {
+          const t = m[k], img = t && t.image;
+          if (!img || !img.width || (img.width <= max && img.height <= max)) return;
+          if (shrunk.has(img)) { t.image = shrunk.get(img); t.needsUpdate = true; return; }
+          const s = Math.min(1, max / Math.max(img.width, img.height));
+          const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(img.width * s)); c.height = Math.max(1, Math.round(img.height * s));
+          try { c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); } catch (e) { return; }
+          shrunk.set(img, c); t.image = c; t.needsUpdate = true;
+          if (img.src && img.src.startsWith('blob:')) { try { URL.revokeObjectURL(img.src); } catch (e) { } }
+        });
+      });
+    });
   }
   function initRenderer() {
     renderer = new THREE.WebGLRenderer({ antialias: !HC.lowMem, powerPreference: HC.lowMem ? 'default' : 'high-performance' });
