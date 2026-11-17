@@ -41,6 +41,15 @@
   HC.GRIP_TWIST = -1.9;   // measured against Sword_Idle / Sword_Attack: low guard at rest, horizontal slash forward
   // ------------------------------------------------------------ the rig
   const _q = new Q(), _q2 = new Q(), _e = new THREE.Euler(), _m = new THREE.Matrix4(), _v = new V3(), _s = new V3();
+  // "Clip|upper" / "Clip|lower": the clip with only its torso+arms+head tracks, or only its pelvis+legs tracks.
+  // Lets the legs walk while the arms block / drink, instead of the whole body sliding in a standing pose.
+  const LOWER_BONE = /^(root|pelvis|thigh_|calf_|foot_|ball_)/i;
+  function splitClip(name) {
+    const m = /^(.+)\|(upper|lower)$/.exec(name); if (!m || !HC.CLIPS[m[1]]) return null;
+    const src = HC.CLIPS[m[1]], lower = m[2] === 'lower';
+    const tracks = src.tracks.filter(t => LOWER_BONE.test(t.name.split('.')[0]) === lower);
+    return (HC.CLIPS[name] = new THREE.AnimationClip(name, src.duration, tracks));
+  }
   class Rig {
     constructor(asset, opts = {}) {
       this.asset = asset;
@@ -67,7 +76,7 @@
     }
     action(name) {
       if (!this.actions[name]) {
-        const clip = HC.CLIPS[name];
+        const clip = HC.CLIPS[name] || splitClip(name);
         if (!clip) return null;
         this.actions[name] = this.mixer.clipAction(clip);
       }
@@ -78,7 +87,17 @@
       const a = this.action(name); if (!a) return null;
       const same = this.cur === a;
       if (same && !opts.restart) { if (opts.ts !== undefined) a.timeScale = opts.ts; return a; }
-      a.reset();
+      const loop = opts.loop !== false;
+      if (loop && !opts.restart && a.enabled && a.isScheduled()) {
+        // switching back to a loop that is still blending out: keep its phase instead of snapping to frame 0
+        a.stopFading(); a.paused = false;
+      } else {
+        a.reset();
+        // walk <-> run <-> sprint: start the new loop at the same point of the stride as the old one
+        const c = this.cur;
+        if (loop && !opts.restart && opts.at === undefined && c && c.loop === THREE.LoopRepeat && c.enabled)
+          a.time = (c.time / c.getClip().duration % 1) * a.getClip().duration;
+      }
       a.setLoop(opts.loop === false ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
       a.clampWhenFinished = opts.loop === false;
       a.timeScale = opts.ts !== undefined ? opts.ts : 1;
@@ -93,6 +112,24 @@
     strike(name, toImpact, f = 0.45) {
       const clip = HC.CLIPS[name]; if (!clip) return;
       this.play(name, { loop: false, restart: true, ts: Math.max(0.35, Math.min(3, clip.duration * f / Math.max(0.05, toImpact))), fade: 0.1 });
+    }
+    // upper-body layer: play `name`'s arms/torso on top of whatever the legs are doing (null = off).
+    // While a layer is on, the base clip should be its legs-only version (see moveLegs).
+    layer(name, opts = {}) {
+      const want = name ? name + '|upper' : null;
+      if (this.layerName === want) return;
+      if (this.layerAct) this.layerAct.fadeOut(0.15);
+      this.layerAct = null; this.layerName = want;
+      if (!want) return;
+      const a = this.action(want); if (!a) return;
+      a.reset(); a.setLoop(opts.loop === false ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); a.clampWhenFinished = opts.loop === false;
+      a.timeScale = opts.ts || 1; a.enabled = true; a.setEffectiveWeight(1); a.fadeIn(0.15); a.play();
+      this.layerAct = a;
+    }
+    // walk/run with legs only (for use under an upper-body layer)
+    moveLegs(speed, set) {
+      const W2 = set.walkSpeed || 1.4;
+      return this.play(set.walk + '|lower', { ts: Math.max(0.5, speed / W2) * (set.walkTs || 1) });
     }
     update(dt) { this.mixer.update(this.frozen ? 0 : dt); }
     // true on the frame a foot touches down in the current pose (null when the skeleton has no feet).
@@ -169,9 +206,16 @@
     // locomotion clip by speed, in-sync with actual ground speed
     move(speed, set) {
       const W2 = set.walkSpeed || 1.4, R = set.runSpeed || 3.6, Sp = set.sprintSpeed || 6.2;
-      if (speed < 0.15) return this.play(set.idle, { ts: set.idleTs || 1 });
-      if (speed < (set.run ? 2.6 : 99)) return this.play(set.walk, { ts: Math.max(0.4, speed / W2) * (set.walkTs || 1) });
-      if (speed < 5.4 || !set.sprint) return this.play(set.run, { ts: Math.max(0.5, speed / R) });
+      // gait with hysteresis: going up needs the full threshold, coming down needs to drop a margin below it,
+      // so a speed hovering at a threshold can't flip walk<->run every frame
+      const up = [0.15, set.run ? 2.6 : 99, set.sprint ? 5.4 : 99], down = [0.08, set.run ? 2.2 : 99, set.sprint ? 4.9 : 99];
+      let g = this.gait || 0;
+      while (g < 3 && speed >= up[g]) g++;
+      while (g > 0 && speed < down[g - 1]) g--;
+      this.gait = g;
+      if (g === 0) return this.play(set.idle, { ts: set.idleTs || 1 });
+      if (g === 1) return this.play(set.walk, { ts: Math.max(0.4, speed / W2) * (set.walkTs || 1) });
+      if (g === 2) return this.play(set.run, { ts: Math.max(0.5, speed / R) });
       return this.play(set.sprint, { ts: speed / Sp });
     }
   }
@@ -202,9 +246,21 @@
     setLantern(on) { this.lanternGlow.forEach(m => m.color.setHex(on ? 0xffb060 : 0x221810)); }
     setHeadVisible(v) { const h = this.rig.b.Head; if (h && this.headVisible !== v) { h.scale.setScalar(v ? 1 : 0.001); this.headVisible = v; } }
     update(dt) {
-      const r = this.rig, a = this.act, fresh = a !== this.lastAct;
+      const r = this.rig, a = this.act, fresh = a !== this.lastAct || this.wasUpper;   // leaving split mode restarts the full clip
       this.lastAct = a;
       const cls = HC.CLASSES[this.cls];
+      // blocking or drinking while moving: legs walk, upper body keeps the action
+      const upper = (a === 'block' || a === 'drink') && this.speed > 0.3;
+      this.wasUpper = upper;
+      if (upper) {
+        r.layer(a === 'block' ? 'Sword_Block' : 'Consume', a === 'block' ? { loop: false } : { loop: false, ts: HC.CLIPS.Consume.duration / Math.max(0.3, this.actDur) });
+        r.moveLegs(this.speed, PSET);
+        r.update(dt);
+        this.root.position.copy(this.pos); this.root.rotation.y = this.yaw;
+        r.hitFlash(dt);
+        return;
+      }
+      r.layer(null);
       switch (a) {
         case 'attack': case 'heavy': {
           const at = cls[a === 'heavy' ? 'heavy' : 'light'];

@@ -415,7 +415,14 @@
   }
   function applyPlayerState(p, s) {
     p.netPos.set(s.x, s.y, s.z); p.netYaw = s.yaw; p.look = s.look; p.hp = s.hp; p.maxHp = s.mhp; p.downed = !!s.dn;
-    if (p.act !== s.act) p.avatar.actT = s.at;
+    if (p.act !== s.act) {
+      p.avatar.actT = s.at;
+      // teammates' swings and rolls (their own client plays them for them)
+      if (!p.local && ['attack', 'heavy', 'roll'].includes(s.act) && p.pos.distanceTo(me.pos) < 40) {
+        const cls = ((G.roster || []).find(r => r.pid === p.id) || {}).cls;
+        playActSound(s.act, p.pos, cls, s.cb || 0, s.act === 'roll' ? 0 : Math.max(0, 0.12 - (s.at || 0)));
+      }
+    }
     p.act = s.act; p.avatar.act = s.act; p.avatar.actDur = s.ad; p.avatar.speed = s.sp; p.avatar.combo = s.cb || 0;
     if (p.lantern !== !!s.ln) { p.lantern = !!s.ln; p.avatar.setLantern(p.lantern); }
     if (p.netPos.distanceTo(p.pos) > 10) p.pos.copy(p.netPos);
@@ -514,7 +521,15 @@
     me.avatar.combo = me.combo;
     if (me.lock) faceTarget(); else if (moveDir().lengthSq() > 0) me.yaw = Math.atan2(moveDir().x, moveDir().z); else me.yaw = me.camYaw;
     startAct(kind === 'heavy' ? 'heavy' : 'attack', a.dur); me.atk = a;
-    A.play(kind === 'heavy' || me.cls === 'greatsword' ? 'heavySwing' : 'swing', me.pos, 0.8, { delay: Math.max(0, a.hit - 0.2) });   // clips peak ~0.2 s in
+    // your own swings play un-positioned at full volume (the camera sits metres behind you); clips peak ~0.2 s in
+    playActSound(kind === 'heavy' ? 'heavy' : 'attack', null, me.cls, me.combo, Math.max(0, a.hit - 0.2));
+  }
+  // attack / heavy / roll sounds. pos = null -> your own character (full volume), else a teammate in 3D
+  function playActSound(act, pos, cls, combo = 0, delay = 0) {
+    const armor = cls === 'greatsword', v = pos ? 1.2 : 1.0, rev = pos ? 0.8 : 0.35;
+    if (act === 'roll') A.play('dodge', pos, v, { armor, rev });
+    else if (act === 'heavy' || armor) A.play('heavyAttack', pos, v, { delay, armor, rev });   // the greatsword always swings heavy
+    else A.play('attack', pos, v, { delay, combo, armor, rev });
   }
   function tryRoll() {
     if (!me || me.downed || me.dead || G.cine || ['roll', 'downed', 'drink'].includes(me.act)) return;
@@ -524,7 +539,7 @@
     const d = moveDir();
     me.rollDir = d.lengthSq() > 0 ? d.clone() : new V3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
     me.yaw = Math.atan2(me.rollDir.x, me.rollDir.z); if (d.lengthSq() === 0) me.yaw += Math.PI;
-    startAct('roll', 0.6); me.iframes = 0.42; A.play('roll', me.pos, 0.7);
+    startAct('roll', 0.6); me.iframes = 0.42; playActSound('roll', null, me.cls);
   }
   function tryDrink() { if (!me || busy() || me.downed || me.flasks <= 0) return; me.flasks--; startAct('drink', 1.15); me.healed = false; }
   function faceTarget() { const t = me.lock; if (t) me.yaw = Math.atan2(t.pos.x - me.pos.x, t.pos.z - me.pos.z); }
@@ -1095,7 +1110,8 @@
       }
     } else if (me.act !== 'cine') {
       const blocking = ((mouse.r && (locked || G.touch)) || keys.KeyK) && !inputLocked;   // K = keyboard block
-      const sprint = keys.ShiftLeft && dir.lengthSq() > 0 && me.st > 0 && !blocking;
+      // touch players sprint by pushing the stick: stop at 25 stamina so there is always enough left to attack or roll
+      const sprint = keys.ShiftLeft && dir.lengthSq() > 0 && me.st > (G.touch ? 25 : 0) && !blocking;
       speed = c.speed * (blocking ? 0.45 : sprint ? 1.65 : 1) * (me.speedMul || 1);
       if (sprint) { me.st -= dt * 15; me.stDelay = 0.5; }
       if (blocking) { if (me.act !== 'block') startAct('block', 0); } else if (me.act === 'block') startAct('idle', 0);

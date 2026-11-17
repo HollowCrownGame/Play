@@ -146,6 +146,9 @@
     rumble(d, t) { noise(d, t, 2.2, 'lowpass', 220, 80, 1, 0.6, 0.2); },
     sub(d, t) { tone(d, t, 1.0, 'sine', 70, 28, 0.7); },
     splash(d, t) { noise(d, t + 0.02, 0.15, 'highpass', 2500, 0, 0.5, 0.08); },
+    // body of air moved by a blade / body: band-passed noise sweeping down, attack ramped so it "rushes" in
+    whoosh(d, t, dur = 0.28, f0 = 1800, f1 = 420, peak = 0.35) { noise(d, t, dur, 'bandpass', f0, f1, 1.4, peak, dur * 0.35); },
+    thud(d, t, peak = 0.5) { tone(d, t, 0.22, 'sine', 95, 38, peak, 0.004); noise(d, t, 0.12, 'lowpass', 600, 120, 0.8, peak * 0.5, 0.003); },
   };
   // game event -> recorded sample (+ optional procedural layer)
   const MAP = {
@@ -165,6 +168,25 @@
     if (ev) sample(ev, d, t, (RATE[name] || 1) * (opts.rate || 1));
     if (name === 'step' && opts.armor) sample('step_armor', d, t, opts.rate || 1, 0.55);
     if (name === 'roll') sample('step', d, t + 0.18, 0.75, 0.9);
+    // ---- player actions: several layers so they read clearly over combat
+    if (name === 'attack') {          // light combo hit; opts.combo 0..2 gets a little bigger each step
+      const c = opts.combo || 0;
+      sample('swing', d, t, 1.05 - c * 0.06, 1.0 + c * 0.15);
+      PROC.whoosh(d, t + 0.04, 0.22 + c * 0.05, 2200, 520, 0.22 + c * 0.06);
+      if (opts.armor) sample('step_armor', d, t, 1.1, 0.35);
+    }
+    if (name === 'heavyAttack') {     // wind-up rattle, then a deep slow cut
+      if (opts.armor !== false) sample('step_armor', d, Math.max(ctx.currentTime, t - 0.18), 0.9, 0.45);
+      sample('swing_heavy', d, t, 0.92, 1.2);
+      PROC.whoosh(d, t + 0.03, 0.42, 1100, 160, 0.42);
+    }
+    if (name === 'dodge') {           // cloth + air, body hits the ground, light landing step
+      sample('roll', d, t, 1, 1.0);
+      PROC.whoosh(d, t, 0.25, 900, 300, 0.2);
+      PROC.thud(d, t + 0.2, 0.45); sample('step', d, t + 0.2, 0.7, 1.0);
+      sample('step', d, t + 0.5, 0.95, 0.7);
+      if (opts.armor) sample('step_armor', d, t + 0.2, 0.85, 0.5);
+    }
     if (name === 'bell') sample('bellhit', d, t, 0.5, 0.6);
     (LAYER[name] || []).forEach(l => PROC[l](d, t));
     if (name === 'step' && opts.wet) PROC.splash(d, t);

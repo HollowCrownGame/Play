@@ -236,3 +236,4 @@ body.touch .bar { width: min(280px, 34vw); }
   .cls { padding: 8px; }
   .big { padding: 10px; font-size: 16px; }
 }
+#tKnob.sprint { background: rgba(200, 70, 50, 0.7); box-shadow: 0 0 14px rgba(220, 80, 50, 0.6); }

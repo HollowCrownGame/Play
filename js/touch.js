@@ -58,7 +58,8 @@
         if (m > R) { dx *= R / m; dy *= R / m; }
         $('tKnob').style.transform = `translate(${dx}px, ${dy}px)`;
         const inp = G().input; inp.stick.x = dx / R; inp.stick.y = -dy / R;
-        inp.keys.ShiftLeft = m > R * 1.05;           // push past the rim to sprint
+        // sprint only on a deliberate push well past the rim (knob turns red), so stamina isn't burned by accident
+        const sprint = m > R * 1.6; inp.keys.ShiftLeft = sprint; $('tKnob').classList.toggle('sprint', sprint);
       } else if (look && e.pointerId === look.id) {
         G().input.look(e.clientX - look.x, e.clientY - look.y); look.x = e.clientX; look.y = e.clientY;
       }
@@ -66,7 +67,7 @@
     const end = e => {
       if (stick && e.pointerId === stick.id) {
         stick = null; const inp = G().input; inp.stick.x = inp.stick.y = 0; inp.keys.ShiftLeft = false;
-        $('tKnob').style.transform = ''; $('tStick').classList.add('hidden');
+        $('tKnob').style.transform = ''; $('tKnob').classList.remove('sprint'); $('tStick').classList.add('hidden');
       }
       if (look && e.pointerId === look.id) look = null;
     };
