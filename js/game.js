@@ -13,6 +13,10 @@
 
   // ================================================================ boot
   function loadModels(cb) {
+    // three r128's GLTFLoader decodes textures with createImageBitmap everywhere except Firefox; Safari's
+    // implementation is buggy (blank / white textures - later three versions skip it on Safari too).
+    // Hiding it makes the loader fall back to plain <img> decoding.
+    if (HC.isWebKit && window.createImageBitmap) { try { window.createImageBitmap = undefined; } catch (e) { } }
     const loader = new THREE.GLTFLoader(), names = Object.keys(window.HC_MODELS || {});
     if (THREE.DRACOLoader) {
       const draco = new THREE.DRACOLoader();

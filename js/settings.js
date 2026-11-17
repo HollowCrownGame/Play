@@ -3,6 +3,8 @@
   const S = HC.Settings = {};
   // phones, tablets, Chromebooks and devices reporting <= 4 GB RAM get the memory-saving paths
   HC.lowMem = /[?&]lowmem\b/.test(location.search) || matchMedia('(pointer: coarse)').matches || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent) || (navigator.deviceMemory || 8) <= 4;
+  // Safari / every iPhone & iPad browser (all WebKit underneath)
+  HC.isWebKit = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|OPR/.test(navigator.userAgent)) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   HC.phoneScreen = matchMedia('(pointer: coarse)').matches && (window.devicePixelRatio || 1) >= 2;
   // Load breadcrumbs: every loading stage is written to localStorage. If the browser kills the tab (out of memory)
   // the crumb survives the reload, so the next visit knows where it died and switches to safe mode.
@@ -70,7 +72,11 @@
       if (type === 'select') return `<label class="set"><span>${label}${note}</span><select data-k="${k}">${Object.entries(o).map(([v, t]) => `<option value="${v}" ${String(S.v[k]) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`;
       if (type === 'range') return `<label class="set"><span>${label} <b data-out="${k}">${S.v[k]}</b></span><input type="range" data-k="${k}" min="${o[0]}" max="${o[1]}" step="${o[2]}" value="${S.v[k]}"></label>`;
       return `<label class="set"><span>${label}${note}</span><input type="checkbox" data-k="${k}" ${S.v[k] ? 'checked' : ''}></label>`;
-    }).join('');
+    }).join('') + `<label class="set"><span>Sound check <span id="sndInfo" class="small"></span></span><button id="btnSndTest" type="button">Test sound</button></label>`;
+    box.querySelector('#btnSndTest').onclick = async () => {
+      const i = box.querySelector('#sndInfo'); i.textContent = ' testing...';
+      try { i.textContent = ' ' + await HC.Audio.test(); } catch (e) { i.textContent = ' error: ' + e.message; }
+    };
     box.querySelectorAll('[data-k]').forEach(el => el.oninput = el.onchange = () => {
       const k = el.dataset.k;
       let v = el.type === 'checkbox' ? el.checked : el.type === 'range' ? parseFloat(el.value) : el.value;

@@ -11,7 +11,8 @@
     if (ctx) return;
     // phones / Chromebooks / low-RAM devices: run audio at 22 kHz - decoded sound takes half the memory
     const AC = window.AudioContext || window.webkitAudioContext;
-    try { ctx = HC.lowMem ? new AC({ sampleRate: 22050 }) : new AC(); } catch (e) { ctx = new AC(); }
+    // (not on iPhone/iPad: a non-native sample rate can leave Safari's audio silent)
+    try { ctx = HC.lowMem && !HC.isWebKit ? new AC({ sampleRate: 22050 }) : new AC(); } catch (e) { ctx = new AC(); }
     comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
     master = ctx.createGain(); master.gain.value = vol.master;
     sfxBus = ctx.createGain(); sfxBus.gain.value = vol.sfx; musBus = ctx.createGain(); musBus.gain.value = vol.music;
@@ -45,6 +46,20 @@
   ['touchend', 'pointerup', 'click', 'keydown'].forEach(t => addEventListener(t, unlock, { capture: true, passive: true }));
   // coming back to the tab (iOS suspends audio in the background)
   document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && ctx.state !== 'running') ctx.resume(); });
+  // Settings -> "Test sound": a plain beep (proves the audio output works) then a sword swing (proves the
+  // sound files decode), with a status line the player can report back.
+  A.test = function () {
+    if (!ctx) A.init();
+    unlock(); A.resume();
+    const t = ctx.currentTime + 0.05, o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = 660; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.4);
+    setTimeout(() => A.play('swing', null, 1, { rev: 0 }), 600);
+    return new Promise(res => setTimeout(() => {
+      const s = A.stats();
+      res(`audio: ${ctx.state} @ ${ctx.sampleRate} Hz · sounds decoded: ${s.decoded} (failed ${decodeFails}) · ${HC.isWebKit ? 'Safari/iOS' : 'other browser'}${navigator.audioSession ? ' · session ' + navigator.audioSession.type : ''}`);
+    }, 900));
+  };
   A.stats = () => ({ state: ctx && ctx.state, events: Object.keys(buffers).length, decoded: Object.values(buffers).reduce((s, l) => s + l.length, 0), beds: Object.keys(beds) });
   A.setVolumes = function (v) {
     Object.assign(vol, v);
@@ -58,7 +73,11 @@
   // decoded) are only decoded while they are actually wanted, and released again after they fade out.
   const isBed = ev => /^(amb|mus)_/.test(ev);
   const toBytes = uri => { const bin = atob(uri.slice(uri.indexOf(',') + 1)), arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); return arr.buffer; };
-  const decode = uri => new Promise(res => { try { const p = ctx.decodeAudioData(toBytes(uri), res, () => res(null)); if (p && p.catch) p.catch(() => res(null)); } catch (e) { res(null); } });
+  let decodeFails = 0;
+  const decode = uri => new Promise(res => {
+    let done = false; const ok = b => { if (!done) { done = true; res(b); } }, bad = () => { if (!done) { done = true; decodeFails++; res(null); } };
+    try { const p = ctx.decodeAudioData(toBytes(uri), ok, bad); if (p && p.catch) p.catch(bad); } catch (e) { bad(); }
+  });
   async function decodeAll() {
     const lib = window.HC_SFX || {};
     for (const [ev, list] of Object.entries(lib)) {
