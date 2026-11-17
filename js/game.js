@@ -17,6 +17,7 @@
     if (THREE.DRACOLoader) {
       const draco = new THREE.DRACOLoader();
       draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/gltf/');
+      if (HC.lowMem) draco.setWorkerLimit(1);   // each decoder worker holds its own WebAssembly heap
       loader.setDRACOLoader(draco);
     }
     HC.assets = {}; let n = 0;
@@ -26,6 +27,7 @@
     const next = () => {
       if (n >= names.length) { cb(); return; }
       const name = names[n];
+      HC.crumb(`model ${n + 1}/${names.length} (${name})`);
       let buf = null;
       try {
         const bin = atob(HC_MODELS[name]); buf = new Uint8Array(bin.length);
@@ -43,8 +45,8 @@
     next();
   }
   function initRenderer() {
-    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer = new THREE.WebGLRenderer({ antialias: !HC.lowMem, powerPreference: HC.lowMem ? 'default' : 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, HC.lowMem ? 1 : 1.5));
     renderer.setSize(innerWidth, innerHeight);
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
@@ -93,7 +95,8 @@
   function readOpts() {
     opt.name = ($('inName').value.trim() || 'Traveler').slice(0, 14); opt.bloom = SV().bloom; opt.sens = SV().sens;
     try { localStorage.setItem('hc_name', opt.name); } catch (e) { }
-    A.init(); A.resume(); HC.Settings.apply();
+    if (HC.safeLevel < 2) { A.init(); A.resume(); }
+    HC.Settings.apply();
   }
   $('btnSettings').onclick = () => HC.Settings.open();
   $('btnSettings2').onclick = () => { show('pause', false); HC.Settings.open(); };
@@ -110,6 +113,8 @@
     if (renderer && v.renderScale !== 'auto') { DR.scale = parseFloat(v.renderScale); renderer.setPixelRatio(DR.scale); renderer.setSize(innerWidth, innerHeight); if (composer) composer.setSize(innerWidth, innerHeight); }
   };
   try { $('inName').value = localStorage.getItem('hc_name') || ''; } catch (e) { }
+  if (HC.lastCrash) $('netStatus').textContent = `Last time the game stopped loading at: ${HC.lastCrash.stage}. ` +
+    `Safe mode is on (lowest graphics${HC.safeLevel >= 2 ? ', no sound' : ''}).`;
   $('btnSolo').onclick = () => { readOpts(); Net.mode = 'solo'; G.roster = [{ pid: 'p0', name: opt.name, cls: opt.cls, slot: 0 }]; beginGame(); };
   $('btnHost').onclick = () => {
     readOpts(); $('netStatus').textContent = 'Lighting the signal fire...'; Net.handler = onNet;
@@ -129,13 +134,19 @@
     if (G.booting) return; G.booting = true;
     show('title', false); show('lobby', false); show('loading');
     setTimeout(() => {
+      HC.crumb('starting the 3D renderer');
       initRenderer();
       loadModels(() => {
+        HC.crumb('building the world');
         W.build(scene);
+        HC.crumb('lighting the world');
         W.makeEnv(renderer);
         HC.FX.init(scene);
+        HC.crumb('placing enemies and characters');
         spawnEnemies(); setupBosses(); buildInteractables(); buildNPCs(); buildMap();
         W.applyLowMaterials(scene);
+        HC.crumb('first frame');
+        setTimeout(HC.loadOk, 8000);   // survived the first seconds of play: the load is good
         (G.roster || []).forEach(addPlayer);
         me = G.players.get(Net.pid);
         if (!me) { addPlayer({ pid: Net.pid, name: opt.name, cls: opt.cls, slot: 0 }); me = G.players.get(Net.pid); }

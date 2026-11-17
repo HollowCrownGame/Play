@@ -3,6 +3,14 @@
   const S = HC.Settings = {};
   // phones, tablets, Chromebooks and devices reporting <= 4 GB RAM get the memory-saving paths
   HC.lowMem = matchMedia('(pointer: coarse)').matches || /CrOS|Android|iPhone|iPad/.test(navigator.userAgent) || (navigator.deviceMemory || 8) <= 4;
+  // Load breadcrumbs: every loading stage is written to localStorage. If the browser kills the tab (out of memory)
+  // the crumb survives the reload, so the next visit knows where it died and switches to safe mode.
+  const CRUMB = 'hc_loadcrumb_v1';
+  let lastCrumb = null; try { lastCrumb = JSON.parse(localStorage.getItem(CRUMB) || 'null'); } catch (e) { }
+  HC.lastCrash = lastCrumb && lastCrumb.stage ? lastCrumb : null;
+  HC.safeLevel = HC.lastCrash ? Math.min(2, (lastCrumb.fails || 0) + 1) : 0;   // 1 = safe graphics, 2 = also no sound
+  HC.crumb = stage => { try { localStorage.setItem(CRUMB, JSON.stringify({ stage, fails: HC.safeLevel, at: Date.now() })); } catch (e) { } };
+  HC.loadOk = () => { try { localStorage.removeItem(CRUMB); } catch (e) { } };
   const KEY = 'hc_settings_v1';
   S.PRESETS = {
     potato: { renderScale: '0.55', viewDist: 0.5, vegetation: 'off', terrain: 'low', bloom: false, grain: false, lights: 2, animLod: true, textures: 'flat', lighting: 'simple', particles: false },
@@ -20,6 +28,8 @@
     if (p) { Object.assign(S.v, S.PRESETS[p]); S.v.preset = p; }
   }
   try { Object.assign(S.v, JSON.parse(saved || '{}')); } catch (e) { }
+  // the last load crashed: force the lightest settings (not saved, so Settings still shows the player's choice)
+  if (HC.safeLevel) Object.assign(S.v, S.PRESETS.potato, { renderScale: '0.4', viewDist: 0.5 });
   S.save = () => { try { localStorage.setItem(KEY, JSON.stringify(S.v)); } catch (e) { } };
   // settings that only take effect when the world is (re)built
   S.RESTART = new Set(['vegetation', 'terrain', 'bloom', 'lights', 'textures', 'lighting']);
