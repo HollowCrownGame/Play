@@ -149,7 +149,7 @@
     const code = $('inCode').value.trim().toUpperCase();
     if (code.length < 5) { $('netStatus').textContent = 'Enter the five-letter code from your host.'; return; }
     readOpts(); $('netStatus').textContent = 'Searching the dark for your friends...'; Net.handler = onNet;
-    Net.join(code, { ready: () => { Net.send({ t: 'hello', name: opt.name, cls: opt.cls }); $('lobbyCode').textContent = code; show('title', false); show('lobby'); show('btnStart', false); show('lobbyWait'); }, error: e => $('netStatus').textContent = e });
+    Net.join(code, { status: t => $('netStatus').textContent = t, ready: () => { Net.send({ t: 'hello', name: opt.name, cls: opt.cls }); $('lobbyCode').textContent = code; show('title', false); show('lobby'); show('btnStart', false); show('lobbyWait'); }, error: e => $('netStatus').textContent = e });
   };
   $('btnStart').onclick = () => { Net.broadcast({ t: 'start', flags: G.flags }); beginGame(); };
   function renderLobby() { $('lobbyList').innerHTML = (G.roster || []).map(r => `<li>${esc(r.name)} <span class="small">- ${HC.CLASSES[r.cls].name}${r.pid === Net.pid ? ' (you)' : ''}</span></li>`).join(''); }
