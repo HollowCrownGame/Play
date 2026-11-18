@@ -19,8 +19,9 @@
 
   // [label, action, css class] - 'hold' actions stay pressed while the finger is down
   const BUTTONS = [
-    ['Attack', { down: () => G().input.attack('attack') }, 'tb-attack big'],
-    ['Heavy', { down: () => tap('KeyQ') }, 'tb-heavy'],
+    // hold Attack to draw a bow / charge the staff, hold Heavy to wind up a power strike
+    ['Attack', { down: () => G().input.attack('attack'), up: () => G().input.release('attack') }, 'tb-attack big'],
+    ['Heavy', { down: () => G().input.attack('heavy'), up: () => G().input.release('heavy') }, 'tb-heavy'],
     ['Block', { down: () => { G().input.mouse.r = true; }, up: () => { G().input.mouse.r = false; } }, 'tb-block'],
     ['Roll', { down: () => tap('Space') }, 'tb-roll'],
     ['Use', { down: () => key('KeyE', true), up: () => key('KeyE', false) }, 'tb-use'],

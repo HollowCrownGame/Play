@@ -44,11 +44,24 @@
   // "Clip|upper" / "Clip|lower": the clip with only its torso+arms+head tracks, or only its pelvis+legs tracks.
   // Lets the legs walk while the arms block / drink, instead of the whole body sliding in a standing pose.
   const LOWER_BONE = /^(root|pelvis|thigh_|calf_|foot_|ball_)/i;
+  // "Clip|rarm" = only the right arm (shoulder to fingertips), "Clip|norarm" = everything except it
+  const RARM_BONE = /^(clavicle|upperarm|lowerarm|hand|index|middle|ring|pinky|thumb)_.*r$|^(clavicle|upperarm|lowerarm|hand)_r$/;
+  const PARTS = {
+    upper: n => !LOWER_BONE.test(n), lower: n => LOWER_BONE.test(n),
+    rarm: n => RARM_BONE.test(n), norarm: n => !RARM_BONE.test(n),
+  };
   function splitClip(name) {
-    const m = /^(.+)\|(upper|lower)$/.exec(name); if (!m || !HC.CLIPS[m[1]]) return null;
-    const src = HC.CLIPS[m[1]], lower = m[2] === 'lower';
-    const tracks = src.tracks.filter(t => LOWER_BONE.test(t.name.split('.')[0]) === lower);
+    const m = /^(.+)\|(upper|lower|rarm|norarm)$/.exec(name); if (!m || !HC.CLIPS[m[1]]) return null;
+    const src = HC.CLIPS[m[1]], keep = PARTS[m[2]];
+    const tracks = src.tracks.filter(t => keep(t.name.split('.')[0]));
     return (HC.CLIPS[name] = new THREE.AnimationClip(name, src.duration, tracks));
+  }
+  // rotate a bone (blend w) so that its world-space direction `from` turns into `to`
+  function turnBone(bone, from, to, w) {
+    const q = new Q().setFromUnitVectors(from, to); if (w < 1) q.slerp(new Q(), 1 - w);
+    const pq = bone.parent.getWorldQuaternion(new Q()), wq = bone.getWorldQuaternion(new Q());
+    bone.quaternion.copy(pq.invert().multiply(q.multiply(wq)));
+    bone.updateMatrixWorld(true);
   }
   class Rig {
     constructor(asset, opts = {}) {
@@ -115,8 +128,8 @@
     }
     // upper-body layer: play `name`'s arms/torso on top of whatever the legs are doing (null = off).
     // While a layer is on, the base clip should be its legs-only version (see moveLegs).
-    layer(name, opts = {}) {
-      const want = name ? name + '|upper' : null;
+    layer(name, opts = {}, part = 'upper') {
+      const want = name ? name + '|' + part : null;
       if (this.layerName === want) return;
       if (this.layerAct) this.layerAct.fadeOut(0.15);
       this.layerAct = null; this.layerName = want;
@@ -128,8 +141,73 @@
     }
     // walk/run with legs only (for use under an upper-body layer)
     moveLegs(speed, set) {
-      const W2 = set.walkSpeed || 1.4;
-      return this.play(set.walk + '|lower', { ts: Math.max(0.5, speed / W2) * (set.walkTs || 1) });
+      const W2 = set.walkSpeed || 1.4, R = set.runSpeed || 3.6;
+      if (speed > 3.0) return this.play(set.run.split('|')[0] + '|lower', { ts: Math.max(0.6, speed / R) });
+      return this.play(set.walk.split('|')[0] + '|lower', { ts: Math.max(0.5, speed / W2) * (set.walkTs || 1) });
+    }
+    // pose the skeleton at time t of a clip (outside the normal mixer) while fn runs - used to measure grips
+    withPose(clip, t, fn) {
+      const c = HC.CLIPS[clip]; if (!c) return fn();
+      const mx = new THREE.AnimationMixer(this.model), a = mx.clipAction(c); a.play(); mx.setTime(t);
+      this.model.updateMatrixWorld(true);
+      try { return fn(); } finally { a.stop(); mx.uncacheRoot(this.model); }
+    }
+    // two-bone IK in world space, blended by w: the hand reaches `target`, the elbow bends toward `pole`
+    ik(upper, lower, hand, target, pole, w = 1) {
+      const U = this.b[upper], L = this.b[lower], H = this.b[hand]; if (!U || !L || !H || w <= 0.001) return;
+      const s = U.getWorldPosition(new V3()), e = L.getWorldPosition(new V3()), h = H.getWorldPosition(new V3());
+      const a = s.distanceTo(e), b = e.distanceTo(h);
+      const t = target.clone(); let d = t.distanceTo(s); const maxd = (a + b) * 0.995;
+      if (d > maxd) { t.sub(s).setLength(maxd).add(s); d = maxd; }
+      d = Math.max(d, Math.abs(a - b) + 1e-3);
+      const dir = t.clone().sub(s).normalize();
+      const cosA = Math.max(-1, Math.min(1, (a * a + d * d - b * b) / (2 * a * d)));
+      const perp = pole.clone().sub(s); perp.sub(dir.clone().multiplyScalar(perp.dot(dir)));
+      if (perp.lengthSq() < 1e-8) perp.set(0, -1, 0); perp.normalize();
+      const eNew = s.clone().addScaledVector(dir, cosA * a).addScaledVector(perp, Math.sqrt(1 - cosA * cosA) * a);
+      turnBone(U, e.clone().sub(s).normalize(), eNew.sub(s).normalize(), w);
+      const e2 = L.getWorldPosition(new V3()), h2 = H.getWorldPosition(new V3());
+      turnBone(L, h2.sub(e2).normalize(), t.clone().sub(e2).normalize(), w);
+    }
+    armLength(upper, lower, hand) {
+      const p = n => this.b[n].getWorldPosition(new V3());
+      return p(upper).distanceTo(p(lower)) + p(lower).distanceTo(p(hand));
+    }
+    // model-space centre of the palm of hand_l / hand_r
+    palm(bone, inv) {
+      const s = bone.slice(-1), P = n => new V3().setFromMatrixPosition(this.b[n].matrixWorld).applyMatrix4(inv);
+      return P('index_01_' + s).add(P('pinky_01_' + s)).multiplyScalar(0.5).lerp(P(bone), 0.35);
+    }
+    // a model-space placement (pos, quat, scale) expressed in the bone's local frame
+    toLocal(bone, posM, quatM, scale = 1) {
+      const b = this.b[bone];
+      const inv = new THREE.Matrix4().copy(this.model.matrixWorld).invert();
+      _m.copy(inv).multiply(b.matrixWorld).decompose(_v, _q2, _s);
+      const bwi = new THREE.Matrix4().compose(_v, _q2, _s).invert();
+      const local = bwi.multiply(new THREE.Matrix4().compose(posM, quatM, new V3(1, 1, 1).multiplyScalar(scale / (this.look.scale || 1))));
+      const out = { p: new V3(), q: new Q(), s: new V3() }; local.decompose(out.p, out.q, out.s); return out;
+    }
+    // a weapon "stance": held at the palm with a fixed model-space orientation, measured in a given pose
+    // spec: { clip, t, rot: [x, y, z] (model-space Euler), off: [x, y, z] (model-space metres) }
+    stanceLocal(bone, spec) {
+      const run = () => {
+        this.model.updateMatrixWorld(true);
+        const inv = new THREE.Matrix4().copy(this.model.matrixWorld).invert();
+        const pos = this.palm(bone, inv); if (spec.off) pos.add(new V3(spec.off[0], spec.off[1], spec.off[2]));
+        const q = new Q().setFromEuler(new THREE.Euler(...(spec.rot || [0, 0, 0]), 'YXZ'));
+        return this.toLocal(bone, pos, q, spec.scale || 1);
+      };
+      if (spec.clip && spec.t === 'peak') {
+        // the moment the hand is furthest forward (a thrust's full extension)
+        const c = HC.CLIPS[spec.clip], s = bone.slice(-1); let best = 0, bz = -1e9;
+        for (let i = 0; i <= 24; i++) {
+          const t = c.duration * i / 24;
+          const z = this.withPose(spec.clip, t, () => { const inv = new THREE.Matrix4().copy(this.model.matrixWorld).invert(); return this.palm(bone, inv).z; });
+          if (z > bz) { bz = z; best = t; }
+        }
+        return this.withPose(spec.clip, best, run);
+      }
+      return spec.clip ? this.withPose(spec.clip, spec.t || 0, run) : run();
     }
     update(dt) { this.mixer.update(this.frozen ? 0 : dt); }
     // true on the frame a foot touches down in the current pose (null when the skeleton has no feet).
@@ -165,6 +243,7 @@
       W.applyLowMaterials(obj);
       // full-metal props render black with no env map (and the HDR eclipse env blooms out), so make them part-metal
       obj.traverse(o => { const m = o.isMesh && o.material; if (m && m.isMeshStandardMaterial && m.metalness > 0.4) { o.material = m.clone(); o.material.metalness = 0.35; o.material.roughness = Math.min(m.roughness, 0.6); } });
+      if (opts.mode === 'none') { b.add(obj); return obj; }      // the caller places it (weapon stances)
       this.model.updateMatrixWorld(true);
       const inv = new THREE.Matrix4().copy(this.model.matrixWorld).invert();
       const P = n => this.b[n] ? new V3().setFromMatrixPosition(this.b[n].matrixWorld).applyMatrix4(inv) : null;
@@ -223,101 +302,297 @@
 
   // ------------------------------------------------------------ player classes & avatar
   HC.CLASSES = {
-    sword: { name: 'Oathsworn', weapon: 'sword', hp: 110, light: { dmg: 24, poise: 18, range: 2.5, arc: 1.9, dur: 0.62, hit: 0.32, st: 14 },
-      heavy: { dmg: 44, poise: 45, range: 2.7, arc: 1.4, dur: 1.0, hit: 0.58, st: 30 }, rollCost: 16, speed: 4.7 },
-    greatsword: { name: 'Gravewarden', weapon: 'greatsword', hp: 140, light: { dmg: 40, poise: 40, range: 3.2, arc: 2.4, dur: 0.9, hit: 0.5, st: 22 },
-      heavy: { dmg: 74, poise: 90, range: 3.4, arc: 2.0, dur: 1.4, hit: 0.88, st: 40 }, rollCost: 24, speed: 4.3 },
+    sword: { name: 'Traveler', weapon: 'sword', hp: 220, rollCost: 16, speed: 4.7 },
+    greatsword: { name: 'Traveler', weapon: 'greatsword', hp: 220, rollCost: 16, speed: 4.7 },
   };
-  // weapon styles: how each kind of weapon swings (stats are scaled by the item's rarity in js/items.js).
-  // Melee: light/heavy = { dmg, poise, range, arc, dur, hit, st }. Ranged: + proj, speed, n (spread), ammo, grav.
-  const SW_CLIPS = ['Sword_Regular_A', 'Sword_Regular_B', 'Sword_Regular_C'];
+  // weapon styles: how each kind of weapon is held and swung (damage is scaled by the item's rarity in js/items.js).
+  //   light / heavy: { dmg, poise, range, arc, dur, hit, st } (ranged: + proj, speed, n, ammo, grav)
+  //   clips: light combo, heavyClip: heavy attack, windup: fraction of the heavy clip held while charging
+  //   hand: which hand holds it. fight: grip used to strike. carry: grip while walking/idle (measured in a pose)
+  //   carryArm: keep the weapon arm raised (torch pose) while not fighting - polearms and the staff stay upright
+  //   charge: hold the attack to charge it ('draw' = bow, 'cast' = staff, heavy-only for melee)
+  const SW = ['Sword_Regular_A', 'Sword_Regular_B', 'Sword_Regular_C'];
+  const UPRIGHT = { clip: 'Idle_Torch_Loop', t: 0.6, rot: [-Math.PI / 2, 0, 0] };
   HC.STYLES = {
-    sword: { light: { dmg: 24, poise: 18, range: 2.5, arc: 1.9, dur: 0.62, hit: 0.32, st: 14 }, heavy: { dmg: 44, poise: 45, range: 2.7, arc: 1.4, dur: 1.0, hit: 0.58, st: 30 }, clips: SW_CLIPS, heavyClip: 'Sword_Dash' },
-    greatsword: { light: { dmg: 40, poise: 40, range: 3.2, arc: 2.4, dur: 0.9, hit: 0.5, st: 22 }, heavy: { dmg: 74, poise: 90, range: 3.4, arc: 2.0, dur: 1.4, hit: 0.88, st: 40 }, clips: SW_CLIPS, heavyClip: 'Sword_Dash', armor: true },
-    dagger: { light: { dmg: 15, poise: 8, range: 2.0, arc: 1.6, dur: 0.42, hit: 0.2, st: 8 }, heavy: { dmg: 34, poise: 22, range: 2.3, arc: 1.2, dur: 0.75, hit: 0.38, st: 18 }, clips: ['Sword_Regular_A', 'Punch_Jab', 'Punch_Cross'], heavyClip: 'Sword_Dash' },
-    axe: { light: { dmg: 30, poise: 26, range: 2.5, arc: 1.9, dur: 0.72, hit: 0.38, st: 17 }, heavy: { dmg: 58, poise: 60, range: 2.7, arc: 1.6, dur: 1.1, hit: 0.62, st: 32 }, clips: SW_CLIPS, heavyClip: 'Sword_Dash' },
-    spear: { light: { dmg: 23, poise: 16, range: 3.7, arc: 0.8, dur: 0.6, hit: 0.3, st: 13 }, heavy: { dmg: 48, poise: 45, range: 4.1, arc: 0.7, dur: 0.95, hit: 0.5, st: 28 }, clips: ['Sword_Attack', 'Punch_Jab', 'Sword_Attack'], heavyClip: 'Sword_Dash' },
-    hammer: { light: { dmg: 46, poise: 60, range: 2.9, arc: 2.0, dur: 1.0, hit: 0.55, st: 24 }, heavy: { dmg: 88, poise: 120, range: 3.1, arc: 2.4, dur: 1.5, hit: 0.92, st: 42 }, clips: SW_CLIPS, heavyClip: 'Sword_Dash', armor: true },
-    scythe: { light: { dmg: 32, poise: 24, range: 3.4, arc: 2.8, dur: 0.8, hit: 0.42, st: 18 }, heavy: { dmg: 62, poise: 55, range: 3.6, arc: 3.2, dur: 1.2, hit: 0.7, st: 34 }, clips: SW_CLIPS, heavyClip: 'Sword_Dash' },
-    bow: { ranged: true, light: { dmg: 26, poise: 14, dur: 0.75, hit: 0.4, st: 6, proj: 'arrow', speed: 42, ammo: true, grav: 4 }, heavy: { dmg: 58, poise: 40, dur: 1.3, hit: 0.95, st: 18, proj: 'arrow', speed: 62, ammo: true, grav: 2 }, clips: ['Pistol_Shoot'], heavyClip: 'Pistol_Shoot', attach: { mode: 'forward', offset: new V3(0, 0, 0.08) } },
-    crossbow: { ranged: true, light: { dmg: 40, poise: 30, dur: 1.0, hit: 0.3, st: 8, proj: 'bolt', speed: 55, ammo: true, grav: 2 }, heavy: { dmg: 30, poise: 22, dur: 1.4, hit: 0.55, st: 20, proj: 'bolt', speed: 50, ammo: true, n: 3, grav: 2 }, clips: ['Pistol_Shoot'], heavyClip: 'Pistol_Shoot', attach: { mode: 'forward', offset: new V3(0, 0.05, 0.25) } },
-    staff: { ranged: true, light: { dmg: 30, poise: 20, dur: 0.75, hit: 0.42, st: 16, proj: 'orb', speed: 24 }, heavy: { dmg: 56, poise: 50, dur: 1.2, hit: 0.7, st: 36, proj: 'wave', speed: 18, pierce: true }, clips: ['Spell_Simple_Shoot'], heavyClip: 'Spell_Simple_Shoot' },
+    sword: { light: { dmg: 24, poise: 18, range: 2.5, arc: 1.9, dur: 0.62, hit: 0.32, st: 14 }, heavy: { dmg: 44, poise: 45, range: 2.7, arc: 1.4, dur: 1.0, hit: 0.58, st: 30 }, clips: SW, heavyClip: 'Sword_Dash', windup: 0.1, idle: 'Sword_Idle' },
+    greatsword: { light: { dmg: 40, poise: 40, range: 3.2, arc: 2.4, dur: 0.9, hit: 0.5, st: 22 }, heavy: { dmg: 74, poise: 90, range: 3.4, arc: 2.0, dur: 1.4, hit: 0.88, st: 40 }, clips: ['Sword_Regular_A', 'Sword_Regular_C', 'Sword_Regular_B'], heavyClip: 'Sword_Heavy_Combo', windup: 0.15, armor: true, idle: 'Sword_Idle' },
+    dagger: { light: { dmg: 15, poise: 8, range: 2.0, arc: 1.6, dur: 0.42, hit: 0.2, st: 8 }, heavy: { dmg: 34, poise: 22, range: 2.3, arc: 1.2, dur: 0.75, hit: 0.38, st: 18 }, clips: ['Punch_Cross'], heavyClip: 'Melee_Hook', windup: 0.3, idle: 'Sword_Idle',
+      fight: { clip: 'Punch_Cross', t: 'peak', rot: [-0.15, 0, 0] } },   // quick forward stabs; heavy = lunging stab
+    axe: { light: { dmg: 30, poise: 26, range: 2.5, arc: 1.9, dur: 0.72, hit: 0.38, st: 17 }, heavy: { dmg: 58, poise: 60, range: 2.7, arc: 1.6, dur: 1.1, hit: 0.62, st: 32 }, clips: ['Sword_Regular_A', 'Melee_Hook', 'Sword_Regular_C'], heavyClip: 'Sword_Heavy_Combo', windup: 0.15, idle: 'Sword_Idle' },
+    spear: { light: { dmg: 23, poise: 16, range: 3.7, arc: 0.8, dur: 0.6, hit: 0.3, st: 13 }, heavy: { dmg: 48, poise: 45, range: 4.1, arc: 0.7, dur: 0.95, hit: 0.5, st: 28 }, clips: ['Punch_Cross'], heavyClip: 'Melee_Hook', lightF: 0.38, heavyF: 0.6, windup: 0.3, idle: 'Idle_Loop', carry: UPRIGHT, carryArm: true,
+      fight: { clip: 'Punch_Cross', t: 'peak', rot: [-0.08, 0, 0] } },   // right-hand thrusts: the shaft lies along the arm; heavy = lunge
+    hammer: { light: { dmg: 46, poise: 60, range: 2.9, arc: 2.0, dur: 1.0, hit: 0.55, st: 24 }, heavy: { dmg: 88, poise: 120, range: 3.1, arc: 2.4, dur: 1.5, hit: 0.92, st: 42 }, clips: ['Melee_Hook', 'Sword_Regular_B', 'Sword_Regular_C'], heavyClip: 'Sword_Heavy_Combo', windup: 0.15, armor: true, idle: 'Sword_Idle' },
+    scythe: { light: { dmg: 32, poise: 24, range: 3.4, arc: 2.8, dur: 0.8, hit: 0.42, st: 18 }, heavy: { dmg: 62, poise: 55, range: 3.6, arc: 3.2, dur: 1.2, hit: 0.7, st: 34 }, clips: ['Sword_Regular_B', 'Sword_Regular_A', 'Sword_Regular_C'], heavyClip: 'Sword_Heavy_Combo', windup: 0.15, idle: 'Idle_Loop', carry: UPRIGHT, carryArm: true },
+    bow: { ranged: true, charge: 'draw', hand: 'hand_l', light: { dmg: 26, poise: 14, dur: 0.35, hit: 0.0, st: 6, proj: 'arrow', speed: 60, ammo: true, grav: 3 }, heavy: { dmg: 26, poise: 14, dur: 0.35, hit: 0.0, st: 6, proj: 'arrow', speed: 60, ammo: true, grav: 3 }, idle: 'Idle_Loop',
+      carry: { clip: 'Idle_Loop', t: 0.5, rot: [0.22, 0, 0], off: [0, 0, 0.05] },
+      string: { top: new V3(0, 0.71, -0.082), bottom: new V3(0, -0.71, -0.082) } },
+    crossbow: { ranged: true, light: { dmg: 40, poise: 30, dur: 1.75, hit: 0.32, st: 8, proj: 'bolt', speed: 62, ammo: true, grav: 2, reload: 1.1 }, heavy: { dmg: 30, poise: 22, dur: 2.0, hit: 0.5, st: 20, proj: 'bolt', speed: 55, ammo: true, n: 3, grav: 2, reload: 1.1 }, idle: 'Idle_Loop',
+      carry: { clip: 'Idle_Loop', t: 0.5, rot: [Math.PI / 2 - 0.25, 0, 0] }, aim: { clip: 'Pistol_Aim_Neutral', t: 0.4, rot: [0, 0, 0] } },
+    staff: { ranged: true, charge: 'cast', light: { dmg: 30, poise: 20, dur: 0.55, hit: 0.2, st: 16, proj: 'orb', speed: 26 }, heavy: { dmg: 56, poise: 50, dur: 0.7, hit: 0.3, st: 36, proj: 'wave', speed: 18, pierce: true }, idle: 'Idle_Loop', carry: UPRIGHT, carryArm: true, fightArm: true },
   };
+  // where in each clip the weapon actually sweeps through the space in front of the character (measured by
+  // tracing the blade tip through the clip), so the hit lands on that frame
+  HC.CLIP_F = { Sword_Regular_A: 0.3, Sword_Regular_B: 0.45, Sword_Regular_C: 0.32, Sword_Dash: 0.19, Melee_Hook: 0.6,
+    Punch_Cross: 0.3, Sword_Heavy_Combo: 0.25, Sword_Regular_Combo: 0.06, Sword_Attack: 0.25 };
   HC.PLAYER_COLORS = [0x6a5440, 0x3a5a6a, 0x6a3a3a, 0x4a6a40];
-  const PSET = { idle: 'Sword_Idle', walk: 'Walk_Loop', run: 'Jog_Fwd_Loop', sprint: 'Sprint_Loop', walkSpeed: 1.5, runSpeed: 3.8, sprintSpeed: 6.5 };
+  const LOCO = {};
+  function loco(idle, sfx) {
+    const k = idle + sfx;
+    return LOCO[k] || (LOCO[k] = { idle: idle + sfx, walk: 'Walk_Loop' + sfx, run: 'Jog_Fwd_Loop' + sfx, sprint: 'Sprint_Loop' + sfx, walkSpeed: 1.5, runSpeed: 3.8, sprintSpeed: 6.5 });
+  }
+  const FIGHT_ACTS = ['attack', 'heavy', 'block', 'charge'];
+  const _up = new V3(0, 1, 0), _aim = new V3(), _t = new V3(), _p = new V3(), _mi = new THREE.Matrix4(), _qq = new Q();
 
   class Avatar {
     constructor(cls, color, name) {
       this.cls = cls; this.name = name;
       this.rig = new Rig('player', { tint: color });
       this.root = this.rig.root;
-      this.style = 'sword';
-      this.setWeapon(HC.CLASSES[cls].weapon, HC.CLASSES[cls].weapon === 'greatsword' ? 'greatsword' : 'sword');
+      this.style = 'sword'; this.stances = {};
       this.lantern = this.rig.attach('lantern', 'pelvis', { mode: 'model', pos: new V3(0.2, 0.92, 0.08), scale: 0.8 });
       this.lanternGlow = [];
       if (this.lantern) this.lantern.traverse(o => { if (o.isMesh && /Glow/.test(o.material.name)) { o.material = o.material.clone(); this.lanternGlow.push(o.material); } });
       this.act = 'idle'; this.actT = 0; this.actDur = 1; this.speed = 0; this.lastAct = null;
       this.pos = new V3(); this.yaw = 0; this.headVisible = true;
+      this.draw = 0; this.pitch = 0; this.twist = 0; this.drawW = 0; this.idleT = 0; this.charge = 0;
+      this.armor = {};
+      this.setWeapon(HC.CLASSES[cls].weapon, 'sword');
     }
-    // swap the held weapon. glow: rarity colour (hex) worked into the weapon's materials for rare and better items
+    // swap the held weapon. glow: rarity colour (hex) worked into the weapon's metal for rare and better items
     setWeapon(model, style, glow, glowAmt = 0) {
       const key = model + '|' + style + '|' + glow;
       if (this.weaponKey === key) return;
       this.weaponKey = key;
       if (this.weapon && this.weapon.parent) this.weapon.parent.remove(this.weapon);
+      if (this.string) { this.string.geometry.dispose(); this.string = null; }
+      this.nockArrow = null;
       const S = HC.STYLES[style] || HC.STYLES.sword;
       this.style = HC.STYLES[style] ? style : 'sword';
-      this.weapon = HC.assets && HC.assets[model] ? this.rig.attach(model, 'hand_r', S.attach || { mode: 'grip' }) : null;
-      if (this.weapon && glow != null && glowAmt > 0) {
+      this.hand = S.hand || 'hand_r';
+      this.stances = {}; this.stanceKey = null;
+      if (!(HC.assets && HC.assets[model])) { this.weapon = null; return; }
+      const r = this.rig;
+      if (S.ranged) {
+        this.weapon = r.attach(model, this.hand, { mode: 'none' });
+      } else if (S.fight) {
+        this.weapon = r.attach(model, this.hand, { mode: 'none' });
+        this.stances.fight = r.stanceLocal(this.hand, S.fight);
+      } else {
+        this.weapon = r.attach(model, this.hand, { mode: 'grip' });
+        this.stances.fight = { p: this.weapon.position.clone(), q: this.weapon.quaternion.clone() };
+      }
+      if (S.carry) this.stances.carry = r.stanceLocal(this.hand, S.carry);
+      if (S.aim) this.stances.aim = r.stanceLocal(this.hand, S.aim);
+      if (!this.stances.fight) this.stances.fight = this.stances.aim || this.stances.carry;
+      this.applyStance(this.stances.carry || this.stances.fight, 1);
+      if (glow != null && glowAmt > 0) {
+        // a faint inner glow in the rarity colour on the metal parts (not the wood or leather)
         const c = new THREE.Color(glow);
         this.weapon.traverse(o => {
-          if (!o.isMesh) return;
+          if (!o.isMesh || !o.material.emissive) return;
+          if (!/Steel|Iron|Brass|Crystal|Glow/i.test(o.material.name)) return;
           o.material = o.material.clone();
-          if (o.material.emissive) o.material.emissive.lerp(c, Math.min(1, glowAmt));
-          if (o.material.color && glowAmt > 0.5) o.material.color.lerp(c, 0.15);
+          o.material.emissive.copy(c).multiplyScalar(0.05 + 0.13 * glowAmt);
         });
       }
+      if (this.style === 'bow') {
+        // a live bowstring (bends to the drawing hand) and the arrow on the string while drawing
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+        this.string = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xd8cdb4 }));
+        this.string.frustumCulled = false; this.weapon.add(this.string);
+        if (HC.assets.arrow) { this.nockArrow = W.clone('arrow'); this.nockArrow.visible = false; this.weapon.add(this.nockArrow); }
+        this.setString(null);
+      }
+    }
+    // armor: skinned pieces from models/armor_<set>.glb, re-bound to this character's own skeleton so they bend
+    // with every animation. vis = { head: 'plate', chest: 'chain', arms: null, legs: 'leather' }
+    setArmor(vis) {
+      vis = vis || {};
+      const model = this.rig.model;
+      this.armorMeshes = this.armorMeshes || {};
+      if (!this.own) { this.own = []; model.traverse(o => { if (o.isMesh) this.own.push(o); }); }
+      ['head', 'chest', 'arms', 'legs'].forEach(slot => {
+        const want = vis[slot] || null, cur = this.armorMeshes[slot];
+        if (cur && cur.userData.set === want) return;
+        if (cur) { cur.parent && cur.parent.remove(cur); delete this.armorMeshes[slot]; }
+        if (!want || !HC.assets || !HC.assets['armor_' + want]) return;
+        const pieces = [];
+        HC.assets['armor_' + want].traverse(o => { if (o.isSkinnedMesh && (o.name === slot || (o.parent && o.parent.name === slot))) pieces.push(o); });
+        if (!pieces.length) return;
+        const grp = new THREE.Group(); grp.userData.set = want;
+        for (const src of pieces) {
+          const bones = src.skeleton.bones.map(b => this.rig.b[b.name]);
+          if (bones.some(b => !b)) continue;
+          const m = new THREE.SkinnedMesh(src.geometry, src.material);
+          m.bind(new THREE.Skeleton(bones, src.skeleton.boneInverses), src.bindMatrix);
+          W.applyLowMaterials(m);
+          if (m.material.isMeshStandardMaterial && m.material.metalness > 0.4) { m.material = m.material.clone(); m.material.metalness = 0.4; m.material.roughness = Math.min(m.material.roughness, 0.55); }
+          m.frustumCulled = false; grp.add(m);
+        }
+        model.add(grp); this.armorMeshes[slot] = grp;
+      });
+      // hide the outfit parts each piece replaces (the hood and hair under a helmet, the leather pauldron, the bracers)
+      const hide = [];
+      if (this.armorMeshes.head) hide.push(/Head_Hood|Hair_/);
+      if (this.armorMeshes.chest && this.armorMeshes.chest.userData.set !== 'leather') hide.push(/Acc_Pauldron/);
+      if (this.armorMeshes.arms) hide.push(/Arms_Bracer/);
+      this.own.forEach(o => { const n = o.name + ' ' + (o.parent ? o.parent.name : ''); o.visible = !hide.some(r => r.test(n)); });
+    }
+    applyStance(st, f) { if (!st || !this.weapon) return; this.weapon.position.lerp(st.p, f); this.weapon.quaternion.slerp(st.q, f); }
+    // nock: bow-local point the string is pulled to (null = straight)
+    setString(nock) {
+      if (!this.string) return;
+      const S = HC.STYLES.bow.string, a = this.string.geometry.attributes.position;
+      const m = nock || S.top.clone().add(S.bottom).multiplyScalar(0.5);
+      a.setXYZ(0, S.top.x, S.top.y, S.top.z); a.setXYZ(1, m.x, m.y, m.z); a.setXYZ(2, S.bottom.x, S.bottom.y, S.bottom.z); a.needsUpdate = true;
     }
     setLantern(on) { this.lanternGlow.forEach(m => m.color.setHex(on ? 0xffb060 : 0x221810)); }
     setHeadVisible(v) { const h = this.rig.b.Head; if (h && this.headVisible !== v) { h.scale.setScalar(v ? 1 : 0.001); this.headVisible = v; } }
     update(dt) {
-      const r = this.rig, a = this.act, fresh = a !== this.lastAct || this.wasUpper;   // leaving split mode restarts the full clip
-      this.lastAct = a;
-      const cls = HC.STYLES[this.style] || HC.STYLES.sword;
-      // blocking or drinking while moving: legs walk, upper body keeps the action
-      const upper = (a === 'block' || a === 'drink') && this.speed > 0.3;
-      this.wasUpper = upper;
-      if (upper) {
-        r.layer(a === 'block' ? 'Sword_Block' : 'Consume', a === 'block' ? { loop: false } : { loop: false, ts: HC.CLIPS.Consume.duration / Math.max(0.3, this.actDur) });
-        r.moveLegs(this.speed, PSET);
-        r.update(dt);
-        this.root.position.copy(this.pos); this.root.rotation.y = this.yaw;
-        r.hitFlash(dt);
-        return;
-      }
-      r.layer(null);
+      const r = this.rig, a = this.act, S = HC.STYLES[this.style] || HC.STYLES.sword;
+      // polearms and the staff: the weapon arm stays raised (upright grip) except while swinging
+      const arm = !!(this.weapon && S.carryArm) && (S.fightArm || !FIGHT_ACTS.includes(a)) && !['roll', 'downed', 'revive', 'rest', 'hurt', 'throw', 'getup', 'pickup'].includes(a);
+      const sfx = arm ? '|norarm' : '';
+      const fresh = a !== this.lastAct || this.lastArm !== arm;
+      const prevAct = this.lastAct;
+      this.lastAct = a; this.lastArm = arm;
+      const moving = this.speed > 0.3, P = loco(arm ? 'Idle_Loop' : (S.idle || 'Sword_Idle'), sfx);
+      let layer = arm ? ['Idle_Torch_Loop', {}, 'rarm'] : null;
+      if (a !== 'idle' || moving) { this.idleT = 0; if (this.fidget) this.fidget = null; }
       switch (a) {
-        case 'attack': case 'heavy': {
-          const at = this.atk || cls[a === 'heavy' ? 'heavy' : 'light'];
-          // light attacks chain A -> B -> C; heavy is a lunging dash-slash (ranged weapons: shoot / cast)
-          const clip = a === 'heavy' ? cls.heavyClip : cls.clips[(this.combo || 0) % cls.clips.length];
-          if (fresh || this.lastCombo !== this.combo) r.strike(clip, at.hit, a === 'heavy' ? 0.5 : 0.42);
-          this.lastCombo = this.combo;
+        case 'attack': case 'heavy': case 'charge': {
+          const at = this.atk || S[a === 'attack' ? 'light' : 'heavy'];
+          if (this.style === 'crossbow') {
+            if (fresh) this.shot = false;
+            if (this.actT < at.hit) r.play('Pistol_Aim_Neutral', { loop: false, fade: 0.1 });
+            else if (!this.shot) { this.shot = true; r.play('Pistol_Shoot', { loop: false, restart: true, fade: 0.04 }); }
+            else if (this.actT > at.hit + 0.3) r.play('Pistol_Reload', { loop: false, ts: HC.CLIPS.Pistol_Reload.duration / Math.max(0.4, (at.reload || 1.1)), fade: 0.12 });
+          } else if (this.style === 'staff') {
+            if (fresh) r.strike('Spell_Simple_Shoot' + sfx, Math.max(0.08, at.hit), 0.4);
+          } else if (this.style === 'bow') {
+            if (moving) r.move(this.speed, P); else r.play(P.idle, { fade: 0.2 });
+          } else {
+            const clip = (a === 'attack' ? S.clips[(this.combo || 0) % S.clips.length] : S.heavyClip) + sfx;
+            if (a === 'charge') {
+              // wind up and hold the pose until the button is released
+              if (fresh) r.play(clip, { loop: false, restart: true, ts: 0.7, fade: 0.1 });
+              const c = r.cur, hold = (S.windup || 0.25) * c.getClip().duration;
+              if (c.time >= hold) { c.time = hold; c.paused = true; }
+            } else if (a === 'heavy' && prevAct === 'charge' && r.cur) {
+              // released: continue the held swing so the blow lands on time
+              const c = r.cur; c.paused = false;
+              c.timeScale = Math.max(0.5, (c.getClip().duration * (HC.CLIP_F[S.heavyClip] || 0.5) - c.time) / Math.max(0.1, at.hit));
+            } else if (fresh || this.lastCombo !== this.combo) r.strike(clip, at.hit, HC.CLIP_F[clip.split('|')[0]] || (a === 'heavy' ? 0.5 : 0.42));
+            this.lastCombo = this.combo;
+          }
           break;
         }
+        case 'draw': case 'loose':
+          if (moving) r.move(this.speed, P); else r.play(P.idle, { fade: 0.2 });
+          break;
+        case 'cast':
+          if (fresh) r.play('Spell_Simple_Enter' + sfx, { loop: false, restart: true, fade: 0.12 });
+          else if (r.cur && r.cur.time >= r.cur.getClip().duration - 0.02) r.play('Spell_Simple_Idle_Loop' + sfx, { fade: 0.15 });
+          break;
         case 'roll': if (fresh) r.play('Roll', { loop: false, restart: true, ts: HC.CLIPS.Roll.duration / Math.max(0.3, this.actDur), fade: 0.08 }); break;
-        case 'hurt': if (fresh) r.play(this.actDur > 0.8 ? 'Hit_Knockback' : 'Hit_Chest', { loop: false, restart: true, ts: 1.3, fade: 0.06 }); break;
+        case 'hurt': if (fresh) r.play(this.actDur > 0.8 ? 'Hit_Knockback' : Math.random() < 0.5 ? 'Hit_Chest' : 'Hit_Head', { loop: false, restart: true, ts: 1.3, fade: 0.06 }); break;
         case 'throw': if (fresh) r.play('OverhandThrow', { loop: false, restart: true, ts: HC.CLIPS.OverhandThrow.duration / Math.max(0.3, this.actDur), fade: 0.08 }); break;
-        case 'drink': if (fresh) r.play('Consume', { loop: false, restart: true, ts: HC.CLIPS.Consume.duration / this.actDur }); break;
-        case 'block': r.play('Sword_Block', { loop: false, fade: 0.12 }); break;
+        case 'drink':
+          if (moving && !arm) { layer = ['Consume', { loop: false, ts: HC.CLIPS.Consume.duration / Math.max(0.3, this.actDur) }, 'upper']; r.moveLegs(this.speed, P); }
+          else if (fresh || this.wasLayered) r.play('Consume' + sfx, { loop: false, restart: true, ts: HC.CLIPS.Consume.duration / this.actDur });
+          break;
+        case 'block':
+          if (moving) { layer = ['Sword_Block', { loop: false }, 'upper']; r.moveLegs(this.speed, P); }
+          else r.play('Sword_Block', { loop: false, fade: 0.12 });
+          break;
         case 'revive': r.play('Fixing_Kneeling'); break;
         case 'downed': if (fresh) r.play('Death01', { loop: false, restart: true, fade: 0.2 }); break;
-        case 'rest': r.play('Sitting_Idle_Loop', { fade: 0.4 }); break;
-        default: r.move(this.speed, PSET);
+        case 'getup': if (fresh) r.play('LayToIdle', { loop: false, restart: true, ts: HC.CLIPS.LayToIdle.duration / Math.max(0.4, this.actDur), fade: 0.1 }); break;
+        case 'rest':
+          if (fresh) r.play('Sitting_Enter', { loop: false, restart: true, fade: 0.25 });
+          else if (r.curName === 'Sitting_Enter' && r.cur.time >= r.cur.getClip().duration - 0.03) r.play('Sitting_Idle_Loop', { fade: 0.3 });
+          break;
+        case 'pickup': if (fresh) r.play('PickUp_Table', { loop: false, restart: true, ts: HC.CLIPS.PickUp_Table.duration / Math.max(0.3, this.actDur), fade: 0.12 }); break;
+        case 'interact': if (fresh) r.play('Interact' + sfx, { loop: false, restart: true, ts: HC.CLIPS.Interact.duration / Math.max(0.3, this.actDur), fade: 0.12 }); break;
+        default:
+          // standing still for a while: fold the arms, or hold the lantern up and peer into the dark
+          if (!moving && a === 'idle' && !arm) {
+            this.idleT += dt;
+            if (!this.fidget && this.idleT > 14) { this.fidget = Math.random() < 0.5 ? 'Idle_FoldArms_Loop' : 'Idle_Lantern_Loop'; this.fidgetT = 5 + Math.random() * 3; }
+            if (this.fidget) { this.fidgetT -= dt; r.play(this.fidget, { fade: 0.5 }); if (this.fidgetT <= 0) { this.fidget = null; this.idleT = 0; } break; }
+          }
+          r.move(this.speed, P);
       }
+      this.wasLayered = !!layer && layer[2] === 'upper';
+      if (layer) r.layer(layer[0], layer[1], layer[2]); else r.layer(null);
       r.update(dt);
-      this.root.position.copy(this.pos); this.root.rotation.y = this.yaw;
+      // ---- bow: turn side-on, the bow arm points at the target, the other hand draws the string to the jaw
+      const drawing = this.style === 'bow' && (a === 'draw' || a === 'loose') && this.weapon;
+      this.drawW = damp(this.drawW, drawing ? 1 : 0, drawing ? 14 : 10, dt);
+      this.twist = damp(this.twist, drawing ? -1.15 : 0, 12, dt);
+      this.root.position.copy(this.pos); this.root.rotation.y = this.yaw + this.twist;
+      if (this.drawW > 0.01 && this.weapon) this.archery(a);
+      else {
+        // ordinary grips: blend toward the stance for what the character is doing
+        let k = 'fight';
+        if (S.ranged) k = this.style === 'crossbow' && ['attack', 'heavy'].includes(a) ? 'aim' : 'carry';
+        else if (this.stances.carry && !FIGHT_ACTS.includes(a)) k = 'carry';
+        const st = this.stances[k] || this.stances.fight;
+        this.applyStance(st, this.stanceKey === k ? 1 - Math.exp(-dt * 16) : 1 - Math.exp(-dt * 16));
+        this.stanceKey = k;
+        if (this.string && this.drawW <= 0.01) { this.setString(null); if (this.nockArrow) this.nockArrow.visible = false; }
+      }
       r.hitFlash(dt);
+    }
+    archery(a) {
+      const r = this.rig, w = Math.min(1, this.drawW), pu = this.pitch;
+      // aim direction: the way the character faces (yaw) tilted by the camera pitch
+      _aim.set(Math.sin(this.yaw) * Math.cos(pu), Math.sin(pu), Math.cos(this.yaw) * Math.cos(pu));
+      r.model.updateMatrixWorld(true);
+      // head and chest turn back toward the target while the hips stay side-on; chest leans with the aim
+      r.overlay('spine_03', 0, 0.35 * w, 0); r.overlay('neck_01', 0, 0.45 * w, 0); r.overlay('Head', 0, 0.35 * w, 0);
+      r.overlay('spine_02', 0, 0, pu * 0.6 * w);
+      r.model.updateMatrixWorld(true);
+      const ls = r.b.upperarm_l.getWorldPosition(new V3()), rs = r.b.upperarm_r.getWorldPosition(new V3());
+      const reach = r.armLength('upperarm_l', 'lowerarm_l', 'hand_l') * 0.92;
+      const grip = ls.clone().addScaledVector(_aim, reach);
+      r.ik('upperarm_l', 'lowerarm_l', 'hand_l', grip, ls.clone().addScaledVector(_aim, 0.3).add(new V3(0, -0.6, 0)), w);
+      // the bow: upright (slightly canted), facing the target, in the left palm
+      r.model.updateMatrixWorld(true);
+      const inv = _mi.copy(r.model.matrixWorld).invert();
+      const palmW = r.palm('hand_l', inv).applyMatrix4(r.model.matrixWorld);
+      const zf = _aim.clone(), yu = _up.clone().sub(zf.clone().multiplyScalar(_up.dot(zf))).normalize();
+      yu.applyAxisAngle(zf, -0.12);
+      const xr = new V3().crossVectors(yu, zf).normalize();
+      const qW = new Q().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xr, yu, zf));
+      const hb = r.b.hand_l, hq = hb.getWorldQuaternion(new Q()), hs = hb.getWorldScale(new V3());
+      const wq = hq.clone().invert().multiply(qW);
+      const wp = hb.worldToLocal(palmW.clone());
+      const st = this.stances.carry;
+      this.weapon.position.copy(st ? st.p.clone().lerp(wp, w) : wp);
+      this.weapon.quaternion.copy(st ? st.q.clone().slerp(wq, w) : wq);
+      this.weapon.updateMatrixWorld(true);
+      // draw hand: from the string to the anchor at the jaw as the draw builds; snaps forward on release
+      const pull = a === 'loose' ? 0 : this.draw;
+      const stringW = this.weapon.localToWorld(new V3(0, 0, -0.082));
+      const nockW = stringW.clone().addScaledVector(_aim, -(0.04 + 0.56 * pull));
+      const wristT = nockW.clone().addScaledVector(_aim, -0.07).add(new V3(0, -0.03, 0));
+      r.ik('upperarm_r', 'lowerarm_r', 'hand_r', wristT, rs.clone().addScaledVector(_aim, -0.6).add(new V3(0, 0.25, 0)), w);
+      // string + arrow follow the drawing fingers
+      r.model.updateMatrixWorld(true);
+      const fing = r.b.middle_01_r ? r.b.middle_01_r.getWorldPosition(new V3()) : nockW;
+      const nockL = this.weapon.worldToLocal(a === 'loose' ? stringW.clone() : fing.clone());
+      nockL.x = 0;                                     // the string stays in the bow's plane
+      this.setString(nockL);
+      if (this.nockArrow) {
+        const show = a === 'draw' && this.nocked !== false;
+        this.nockArrow.visible = show;
+        if (show) {
+          const dir = new V3(0, 0, 1);                 // bow-local forward
+          this.nockArrow.position.copy(nockL).addScaledVector(dir, 0.415);
+          this.nockArrow.quaternion.identity();
+        }
+      }
     }
   }
   HC.Avatar = Avatar;
@@ -391,6 +666,7 @@
       if (type === 'wave') mesh.scale.set(3, 0.4, 0.6);
     }
     const holder = new THREE.Group(); holder.add(mesh); holder.position.copy(pos);
+    if (o.size && o.size !== 1) mesh.scale.multiplyScalar(o.size);
     holder.quaternion.setFromUnitVectors(new V3(0, 0, 1), vel.clone().normalize());
     FX.scene.add(holder);
     Proj.list.push(Object.assign({ type, pos: pos.clone(), vel: vel.clone(), dmg, life: 4, mesh: holder, sim: simulate, hit: new Set() }, o));
@@ -403,7 +679,15 @@
       if (p.type === 'orb') { p.mesh.scale.setScalar(1 + Math.sin(p.life * 30) * 0.15); if (Math.random() < 0.3) FX.spawn('ember', p.pos.clone()); }
       if (p.type === 'bomb') p.mesh.rotation.x += dt * 9;
       let dead = p.life <= 0;
-      if (p.pos.x > 1500 ? !W.walkable(p.pos.x, p.pos.z) : p.pos.y < W.heightAt(p.pos.x, p.pos.z)) dead = true;
+      if (p.pos.x > 1500 ? !W.walkable(p.pos.x, p.pos.z) : p.pos.y < W.heightAt(p.pos.x, p.pos.z)) {
+        dead = true;
+        if (p.type === 'arrow' || p.type === 'bolt') HC.Audio.play('arrow_thunk', p.pos, 0.6);   // sticks into the ground
+      }
+      // an enemy bolt whistling past your head
+      if (!p.friendly && !p.whizzed && (p.type === 'bolt' || p.type === 'arrow') && HC.Game.api) {
+        const me = HC.Game.api.me();
+        if (me && Math.abs(me.pos.x - p.pos.x) + Math.abs(me.pos.z - p.pos.z) < 3.5) { p.whizzed = true; HC.Audio.play('arrow_fly', p.pos, 1.0); }
+      }
       // the local player's own shots: hit enemies (the hit goes through the normal damage path in game.js)
       if (p.friendly && p.sim && !dead) HC.Game.enemies.forEach(e => {
         if (dead || !e.alive || !e.root.visible || p.hit.has(e.id)) return;

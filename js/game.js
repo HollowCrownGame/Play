@@ -205,6 +205,7 @@
     const w = HC.Items.weapon(), v = HC.Items.visual(w ? w.b : null, w ? w.r : 0);
     me.wb = w ? w.b : ''; me.wr = w ? w.r : 0;
     me.avatar.setWeapon(w ? v.model : null, w ? v.style : 'sword', v.glow, v.amt);
+    me.armorCode = HC.Items.armorCode(); me.avatar.setArmor(HC.Items.armorVisual(me.armorCode));
     recalcStats();
   }
   function removePlayer(pid) { const p = G.players.get(pid); if (!p) return; scene.remove(p.avatar.root); G.players.delete(pid); }
@@ -320,6 +321,7 @@
     if (B.sigil) G.flags['sigil_' + B.sigil] = true;
     const b = G.bossE[key]; b.state = S.dead;
     areaBanner(key === 'king' ? 'THE HOLLOW KING FALLS' : 'WARDEN FELLED');
+    A.play('jingle_win', null, 0.55, { delay: 1.2 });
     A.play('bell', null, 0.6, { delay: 2 });
     if (B.sigil) setTimeout(() => message(`${b.cfg.name} is defeated. You claim the Sigil of ${{ tears: 'Tears', silence: 'Silence', bell: 'the Bell', oath: 'the Oath' }[B.sigil]}.`), 2500);
     if (B.relic) addInter({ pos: pos.clone(), r: 3, label: 'Take what it left behind', cond: () => !me.relics.has(B.relic), act: () => grantRelic(B.relic) });
@@ -340,7 +342,7 @@
       case 'snd': A.play(e.name, e.pos ? vec(e.pos) : null, e.vol); break;
       case 'shake': G.shakeA = Math.max(G.shakeA || 0, e.a); break;
       case 'proj': if (!Net.isHost()) HC.Proj.spawn(e.type, vec(e.pos), vec(e.vel), 0, false); break;
-      case 'pshot': if (e.by !== Net.pid) HC.Proj.spawn(e.type, vec(e.pos), vec(e.vel), 0, false, { grav: e.grav || 0 }); break;
+      case 'pshot': if (e.by !== Net.pid) HC.Proj.spawn(e.type, vec(e.pos), vec(e.vel), 0, false, { grav: e.grav || 0, size: e.size }); break;
       case 'loot': case 'lootTake': if (HC.Items) HC.Items.onEvent(e); break;
       case 'flag':
         if (G.flags[e.k] === e.v) break;
@@ -356,7 +358,7 @@
       case 'ping': HC.FX.spawn('pingMark', vec(e.pos), { color: HC.PLAYER_COLORS[e.slot % 4] }); A.play('ping', vec(e.pos), 1.2); break;
       case 'spawn': if (!G.enemies.has(e.id)) { const en = new HC.Enemy(e.id, e.type, vec(e.pos)); en.summoned = true; G.enemies.set(e.id, en); en.setState(S.chase); } break;
       case 'bossIntro': startBossIntro(e.key); break;
-      case 'bossPhase': A.bossMusic(true, 2); areaBanner({ sentinel: 'THE SENTINEL WEEPS NO MORE', brother: 'IT SPEAKS WITH YOUR VOICE', bellbearer: 'THE BELL CRACKS', corvane: 'THE CAPTAIN REMEMBERS HIS OATH', king: 'THE KING REMEMBERS HIS OATH' }[e.key] || ''); break;
+      case 'bossPhase': A.bossMusic(true, 2); if (G.bossE[e.key]) A.play('laugh', G.bossE[e.key].pos, 1.2); areaBanner({ sentinel: 'THE SENTINEL WEEPS NO MORE', brother: 'IT SPEAKS WITH YOUR VOICE', bellbearer: 'THE BELL CRACKS', corvane: 'THE CAPTAIN REMEMBERS HIS OATH', king: 'THE KING REMEMBERS HIS OATH' }[e.key] || ''); break;
       case 'bossDead': endBoss(e.key, true, vec(e.pos)); break;
       case 'bossReset': if (G.activeBoss) endBoss(G.activeBoss, false); break;
       case 'ash': if (me && me.pos.distanceTo(vec(e.pos)) < 70 && e.amt) { const n = Math.round(e.amt * (1 + (me.luck || 0))); me.ash += n; floatText(`+${n} ashes`); } break;
@@ -424,10 +426,11 @@
   }
   function playerState(p) {
     return { t: 'st', id: p.id, x: +p.pos.x.toFixed(2), y: +p.pos.y.toFixed(2), z: +p.pos.z.toFixed(2), yaw: +p.yaw.toFixed(2), look: +p.look.toFixed(2), act: p.act,
-      at: +(p.actT || p.avatar.actT || 0).toFixed(2), ad: +(p.actDur || p.avatar.actDur || 0).toFixed(2), sp: +(p.avatar.speed).toFixed(1), hp: Math.round(p.hp), mhp: p.maxHp, dn: p.downed ? 1 : 0, ln: p.lantern ? 1 : 0, cb: p.avatar.combo || 0, w: p.wb || '', wr: p.wr || 0 };
+      at: +(p.actT || p.avatar.actT || 0).toFixed(2), ad: +(p.actDur || p.avatar.actDur || 0).toFixed(2), sp: +(p.avatar.speed).toFixed(1), hp: Math.round(p.hp), mhp: p.maxHp, dn: p.downed ? 1 : 0, ln: p.lantern ? 1 : 0, cb: p.avatar.combo || 0, w: p.wb || '', wr: p.wr || 0, dw: +(p.avatar.draw || 0).toFixed(2), ch: +(p.avatar.charge || 0).toFixed(2), pt: +(p.avatar.pitch || 0).toFixed(2), ar: p.armorCode || '' };
   }
   function applyPlayerState(p, s) {
     p.netPos.set(s.x, s.y, s.z); p.netYaw = s.yaw; p.look = s.look; p.hp = s.hp; p.maxHp = s.mhp; p.downed = !!s.dn;
+    if (!p.local) { p.avatar.draw = s.dw || 0; p.avatar.charge = s.ch || 0; p.avatar.pitch = s.pt || 0; if (s.ar !== undefined && s.ar !== p.armorCode) { p.armorCode = s.ar; p.avatar.setArmor(HC.Items.armorVisual(s.ar)); } }
     if (!p.local && s.w !== undefined && (p.wb !== s.w || p.wr !== s.wr)) {
       p.wb = s.w; p.wr = s.wr; const v = HC.Items.visual(s.w || null, s.wr);
       p.avatar.setWeapon(s.w ? v.model : null, s.w ? v.style : 'sword', v.glow, v.amt);
@@ -435,6 +438,8 @@
     if (p.act !== s.act) {
       p.avatar.actT = s.at;
       // teammates' swings and rolls (their own client plays them for them)
+      if (!p.local && s.act === 'draw' && p.pos.distanceTo(me.pos) < 40) A.play('bow_draw', p.pos, 0.9);
+      if (!p.local && s.act === 'loose' && p.pos.distanceTo(me.pos) < 40) A.play('bow_shoot', p.pos, 1.0);
       if (!p.local && ['attack', 'heavy', 'roll'].includes(s.act) && p.pos.distanceTo(me.pos) < 40) {
         const st = HC.STYLES[p.avatar.style] || {}, at = st[s.act === 'heavy' ? 'heavy' : 'light'] || {};
         playActSound(s.act, p.pos, p.avatar.style, s.cb || 0, s.act === 'roll' ? 0 : Math.max(0, (st.ranged ? at.hit : 0.12) - (s.at || 0)));
@@ -459,7 +464,8 @@
   // used by js/touch.js (phone / tablet / touchscreen Chromebook controls)
   G.input = {
     keys, mouse, stick: { x: 0, y: 0 },
-    attack: kind => tryAttack(kind),
+    attack: kind => press(kind),          // touch buttons: press / release (hold to draw a bow or charge a heavy)
+    release: kind => release(kind),
     look(dx, dy) { if (!me) return; me.camYaw -= dx * 0.006 * opt.sens; me.camPitch = Math.max(-1.0, Math.min(1.1, me.camPitch + dy * 0.005 * opt.sens)); },
     pause() { if (G.started && !G.ended && !overlayOpen()) show('pause'); },
     overlayOpen: () => overlayOpen(),
@@ -478,8 +484,8 @@
     keys[e.code] = true;
     if (e.code === 'Tab') { e.preventDefault(); toggleLock(); }
     if (e.code === 'Space') { e.preventDefault(); tryRoll(); }
-    if (e.code === 'KeyQ') tryAttack('heavy');
-    if (e.code === 'KeyJ' && !e.repeat) tryAttack('attack');    // keyboard-only attack (Chromebook touchpads)
+    if (e.code === 'KeyQ' && !e.repeat) press('heavy');
+    if (e.code === 'KeyJ' && !e.repeat) press('attack');    // keyboard-only attack (Chromebook touchpads)
     if (e.code === 'KeyR') tryDrink();
     if (e.code === 'KeyE') tryInteract();
     if (e.code === 'KeyF') { me.lantern = !me.lantern; me.avatar.setLantern(me.lantern); }
@@ -490,7 +496,7 @@
     if (e.code === 'KeyM') { drawMap(); show('mapOverlay'); unlockPointer(); }
     if (e.code === 'Enter') { show('chatIn'); $('chatIn').focus(); unlockPointer(); e.preventDefault(); }
   });
-  addEventListener('keyup', e => { keys[e.code] = false; });
+  addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'KeyQ') release('heavy'); if (e.code === 'KeyJ') release('attack'); });
   // Clicks on the game view always act (attack / block), whether or not the browser granted mouse capture;
   // a click without capture also asks for it. Previously a click only requested capture, so if the browser
   // refused (or was slow), left click did nothing at all.
@@ -498,10 +504,10 @@
     if (!G.started || overlayOpen() || G.touch) return;
     if (!locked && e.target !== canvasEl()) return;          // clicks on HUD / chat
     if (!locked) lock();
-    if (e.button === 0) { mouse.l = true; tryAttack('attack'); }
+    if (e.button === 0) { mouse.l = true; press('attack'); }
     if (e.button === 2) mouse.r = true;
   });
-  addEventListener('mouseup', e => { if (e.button === 0) mouse.l = false; if (e.button === 2) mouse.r = false; });
+  addEventListener('mouseup', e => { if (e.button === 0) { mouse.l = false; release('attack'); } if (e.button === 2) mouse.r = false; });
   addEventListener('contextmenu', e => e.preventDefault());
   addEventListener('mousemove', e => {
     if (!me || !G.started) return;
@@ -538,16 +544,79 @@
 
   // ================================================================ local player
   const C = () => HC.CLASSES[me.cls];
-  const busy = () => ['attack', 'heavy', 'roll', 'drink', 'hurt', 'downed', 'revive', 'cine', 'throw'].includes(me.act);
+  const busy = () => ['attack', 'heavy', 'roll', 'drink', 'hurt', 'downed', 'revive', 'cine', 'throw', 'charge', 'draw', 'cast', 'loose', 'getup'].includes(me.act);
   function startAct(a, dur) { me.act = a; me.actT = 0; me.actDur = dur; me.avatar.act = a; me.avatar.actT = 0; me.avatar.actDur = dur; me.hitDone = false; }
-  function tryAttack(kind) {
-    if (!me || me.downed || me.dead || G.cine || me.frozen) return;
+  // ---- press / release: bows draw while held, the staff charges, melee heavies wind up; everything else fires on press
+  const canAct = () => me && !me.downed && !me.dead && !G.cine && !me.frozen;
+  const style = () => HC.STYLES[me.avatar.style] || HC.STYLES.sword;
+  const held = {};
+  function noAmmo() {
+    if (HC.Items.ammoFor()) return false;
+    if (G.t - (G.noAmmoT || -9) > 2) { G.noAmmoT = G.t; message('No arrows left. Buy more at an ember, or take them from the fallen.'); }
+    return true;
+  }
+  function press(kind) {
+    if (!me) return;
+    held[kind] = true;
+    const S = style();
+    if (S.charge === 'draw') return startDraw();
+    if (S.charge === 'cast') return startCast(kind);
+    if (!S.ranged && kind === 'heavy' && me.avatar.weapon) return startCharge();
+    tryAttack(kind);
+  }
+  function release(kind) {
+    if (!me || !held[kind]) return;
+    held[kind] = false;
+    if (me.act === 'draw') loose();
+    else if (me.act === 'cast' && me.castKind === kind) castRelease();
+    else if (me.act === 'charge' && kind === 'heavy') chargeRelease();
+  }
+  function startDraw() {
+    if (!canAct() || busy() || me.st <= 0 || noAmmo()) return;
+    startAct('draw', 99); me.draw = 0; me.yaw = me.camYaw; me.avatar.nocked = true;
+    A.play('bow_draw', null, 0.9);
+  }
+  function loose() {
+    const a = HC.Items.weaponStats('attack'), p = me.draw;
+    if (noAmmo()) { startAct('idle', 0); return; }
+    // a quick tap still shoots, weakly; a full draw hits twice as hard and flies much faster and flatter
+    const shot = Object.assign({}, a, { dmg: a.dmg * (0.45 + 1.55 * p), speed: a.speed * (0.45 + 0.55 * p), poise: a.poise * (0.5 + p) });
+    me.st -= a.st; me.stDelay = 0.6;
+    fireShot(shot);
+    startAct('loose', 0.32); me.atk = shot; me.avatar.nocked = false;
+    A.play('bow_shoot', null, 0.6 + 0.5 * p);
+  }
+  function startCast(kind) {
+    if (!canAct() || busy()) return;
+    const a = HC.Items.weaponStats(kind); if (me.st < a.st * 0.5) return;
+    startAct('cast', 99); me.castKind = kind; me.charge = 0; me.yaw = me.camYaw;
+    A.play('spell', null, 0.35, { rate: kind === 'heavy' ? 0.7 : 1 });
+  }
+  function castRelease() {
+    const kind = me.castKind, a = HC.Items.weaponStats(kind), p = me.charge;
+    const shot = Object.assign({}, a, { dmg: a.dmg * (0.6 + 0.9 * p), speed: a.speed * (0.8 + 0.4 * p), size: 0.7 + 0.8 * p });
+    me.st -= a.st; me.stDelay = 0.8;
+    startAct(kind === 'heavy' ? 'heavy' : 'attack', a.dur); me.atk = shot; me.avatar.atk = shot; me.yaw = me.camYaw;
+    A.play('spell', null, 0.8, { rate: 1.1 });
+  }
+  function startCharge() {
+    if (!canAct() || busy() || me.st <= 0) return;
+    startAct('charge', 99); me.charge = 0; me.atk = HC.Items.weaponStats('heavy'); me.avatar.atk = me.atk;
+    if (me.lock) faceTarget(); else me.yaw = me.camYaw;
+  }
+  function chargeRelease() {
+    const p = me.charge; startAct('idle', 0);
+    tryAttack('heavy', { charge: p, fromCharge: true });
+  }
+  function tryAttack(kind, opts = {}) {
+    if (!canAct()) return;
     if (busy()) { if ((me.act === 'attack' || me.act === 'heavy') && me.actT > me.actDur * 0.45) me.queued = kind; return; }
     const a = HC.Items.weaponStats(kind);
     if (me.st <= 0) return;
-    if (a.ranged && a.ammo && !HC.Items.ammoFor()) {
-      if (G.t - (G.noAmmoT || -9) > 2) { G.noAmmoT = G.t; message('No arrows left. Buy more at an ember, or take them from the fallen.'); }
-      return;
+    if (a.ranged && a.ammo && noAmmo()) return;
+    if (opts.charge > 0.15) {   // a charged heavy: up to +80% damage and double stagger
+      a.dmg *= 1 + 0.8 * opts.charge; a.poise *= 1 + opts.charge; a.charged = opts.charge;
+      G.shakeA = Math.max(G.shakeA || 0, 0.2 * opts.charge);
     }
     me.st -= a.st; me.stDelay = 0.8;
     // chain light attacks into a three-hit combo when pressed in rhythm
@@ -555,16 +624,19 @@
     me.avatar.combo = me.combo;
     if (me.lock) faceTarget(); else if (a.ranged) me.yaw = me.camYaw; else if (moveDir().lengthSq() > 0) me.yaw = Math.atan2(moveDir().x, moveDir().z); else me.yaw = me.camYaw;
     startAct(kind === 'heavy' ? 'heavy' : 'attack', a.dur); me.atk = a; me.avatar.atk = a;
+    if (opts.fromCharge) { me.avatar.lastAct = 'charge'; }
+    if (me.avatar.style === 'crossbow') A.play('xbow_reload', null, 0.8, { delay: a.hit + 0.35 });
     // your own swings play un-positioned at full volume (the camera sits metres behind you); clips peak ~0.2 s in
     playActSound(kind === 'heavy' ? 'heavy' : 'attack', null, a.style, me.combo, Math.max(0, a.ranged ? a.hit : a.hit - 0.2));
   }
   // attack / heavy / roll sounds. pos = null -> your own character (full volume), else a teammate in 3D
   function playActSound(act, pos, style, combo = 0, delay = 0) {
     const S = HC.STYLES[style] || {}, armor = !!S.armor, v = pos ? 1.2 : 1.0, rev = pos ? 0.8 : 0.35;
+    const swing = { dagger: 'swing_dagger', spear: 'swing_spear', axe: 'swing_axe', hammer: 'swing_axe', scythe: 'swing_spear' }[style];
     if (act === 'roll') A.play('dodge', pos, v, { armor, rev });
     else if (S.ranged) A.play('shot', pos, v, { delay, kind: style, heavy: act === 'heavy', rev });
-    else if (act === 'heavy' || armor) A.play('heavyAttack', pos, v, { delay, armor, rev });   // greatswords and hammers always swing heavy
-    else A.play('attack', pos, v, { delay, combo, armor, rev });
+    else if (act === 'heavy' || armor) A.play('heavyAttack', pos, v, { delay, armor, rev, swing });   // greatswords and hammers always swing heavy
+    else A.play('attack', pos, v, { delay, combo, armor, rev, swing });
   }
   function tryRoll() {
     if (!me || me.downed || me.dead || G.cine || me.frozen || ['roll', 'downed', 'drink', 'throw'].includes(me.act)) return;
@@ -613,7 +685,10 @@
     const metal = ['knight', 'corvane', 'king', 'sentinel'].includes(e.type);
     if (o.fire || o.perk === 'fire') { dmg *= 1.2; HC.FX.spawn('ember', hp); }
     HC.FX.spawn(e.type === 'sentinel' ? 'stone' : metal ? 'spark' : 'blood', hp);
-    if (e.type !== 'watcher') A.play(e.type === 'sentinel' ? 'stone' : metal ? 'hit_armor' : o.heavy ? 'hit_heavy' : 'hit', hp, o.ranged ? 0.7 : 0.9);
+    const pierce = o.proj === 'arrow' || o.proj === 'bolt';
+    if (e.type !== 'watcher') A.play(e.type === 'sentinel' ? 'stone' : metal ? 'hit_armor' : pierce ? 'arrow_hit' : o.heavy ? 'hit_heavy' : 'hit', hp, o.ranged ? 0.8 : 0.9);
+    if (metal && e.type !== 'sentinel') A.play('hit_plate', hp, 0.5);
+    if (me.avatar.style === 'axe' && !o.ranged && !metal) A.play('chop', hp, 0.45);
     const steal = (o.perk === 'leech' ? 0.06 : 0) + (me.leech || 0);
     if (steal && e.type !== 'watcher') me.hp = Math.min(me.maxHp, me.hp + dmg * steal);
     if (Net.isHost()) e.takeHit(dmg, poise, me.pos, me.id);
@@ -645,8 +720,11 @@
   function fireShot(a) {
     let ammo = null;
     if (a.ammo) { ammo = HC.Items.ammoFor(); if (!ammo) return; HC.Items.takeBase(ammo, 1); }
-    const from = me.pos.clone().add(new V3(Math.sin(me.yaw) * 0.55, 1.45, Math.cos(me.yaw) * 0.55));
-    const to = aimPoint(), n = a.n || 1;
+    const av = me.avatar, to = aimPoint(), n = a.n || 1;
+    let from = me.pos.clone().add(new V3(Math.sin(me.yaw) * 0.55, 1.45, Math.cos(me.yaw) * 0.55));
+    if (av.style === 'bow' && av.weapon) from = av.weapon.localToWorld(new V3(0, 0.02, 0.12));            // off the arrow rest
+    else if (av.style === 'staff' && av.rig.b.hand_l) from = av.rig.palm('hand_l', new THREE.Matrix4().copy(av.rig.model.matrixWorld).invert()).applyMatrix4(av.rig.model.matrixWorld).add(to.clone().sub(me.pos).setY(0).normalize().multiplyScalar(0.25));   // from the open palm
+    else if (av.style === 'crossbow' && av.weapon) from = av.weapon.localToWorld(new V3(0, 0.05, 0.35));
     for (let i = 0; i < n; i++) {
       const dir = to.clone().sub(from); const dist = dir.length(); dir.normalize();
       if (n > 1) dir.applyAxisAngle(new V3(0, 1, 0), (i - (n - 1) / 2) * 0.09);
@@ -654,14 +732,14 @@
       if (a.grav) vel.y += a.grav * (dist / a.speed) * 0.5;          // lob slightly so the arrow lands on the aim point
       const fire = ammo === 'firearrow' || a.proj === 'orb' || a.proj === 'wave' || a.perk === 'fire';
       const dmg = a.dmg * (0.9 + Math.random() * 0.2) * dmgMul() * (ammo === 'firearrow' ? 1.4 : 1);
-      HC.Proj.spawn(a.proj, from, vel, dmg, true, { friendly: true, poise: a.poise, pierce: !!a.pierce, grav: a.grav || 0, perk: a.perk, fire, life: 3 });
-      event({ t: 'pshot', type: a.proj, pos: from.toArray(), vel: vel.toArray(), grav: a.grav || 0, by: Net.pid });
+      HC.Proj.spawn(a.proj, from, vel, dmg, true, { friendly: true, poise: a.poise, pierce: !!a.pierce, grav: a.grav || 0, perk: a.perk, fire, life: 3, size: a.size });
+      event({ t: 'pshot', type: a.proj, pos: from.toArray(), vel: vel.toArray(), grav: a.grav || 0, size: a.size || 1, by: Net.pid });
     }
     if (a.proj === 'wave' || a.proj === 'orb') HC.FX.spawn('ember', from);
   }
-  G.projHit = (e, p) => hitEnemy(e, p.dmg, p.poise || 10, { fire: p.fire, perk: p.perk, ranged: true });
+  G.projHit = (e, p) => hitEnemy(e, p.dmg, p.poise || 10, { fire: p.fire, perk: p.perk, ranged: true, proj: p.type });
   G.bombBurst = function (p) {
-    G.fx('ring', p.pos, { color: 0xff6a20, r: 4, life: 0.6 }); G.fx('ember', p.pos); G.sound('boom', p.pos, 0.9);
+    G.fx('ring', p.pos, { color: 0xff6a20, r: 4, life: 0.6 }); G.fx('ember', p.pos); G.sound('boom', p.pos, 0.9); G.sound('glass', p.pos, 0.8);
     G.enemies.forEach(e => { if (e.alive && e.root.visible && e.pos.distanceTo(p.pos) < 3.8 + e.cfg.r) hitEnemy(e, p.dmg * dmgMul(), 60, { fire: true, ranged: true }); });
   };
   function receiveDamage(dmg, src, kind) {
@@ -673,7 +751,7 @@
     const blocking = me.act === 'block' && Math.abs(HC.angDiff(me.yaw, toSrc)) < 1.4 && kind !== 'watcher' && kind !== 'fire' && kind !== 'admin';
     if (blocking && me.st > 0) {
       me.st -= dmg * (me.relics.has('bellshard') ? 0.8 : 1.6); me.stDelay = 1;
-      A.play('clang', me.pos, 1); HC.FX.spawn('spark', me.pos.clone().setY(me.pos.y + 1.2));
+      A.play('parry', me.pos, 1); HC.FX.spawn('spark', me.pos.clone().setY(me.pos.y + 1.2));
       dmg *= 0.12;
       if (me.st <= 0) { startAct('hurt', 0.9); message('Your guard breaks.'); }
     } else {
@@ -696,7 +774,7 @@
   function die(resetWorld) {
     if (me.dead) return;
     me.dead = true; me.downed = false; show('downed', false); startAct('downed', 999);
-    A.play('death', null, 1); show('death'); $('deathSub').textContent = 'The ember remembers you.';
+    A.play('death', null, 1); A.play('jingle_lose', null, 0.45, { delay: 1.2 }); show('death'); $('deathSub').textContent = 'The ember remembers you.';
     setTimeout(() => { show('death', false); me.dead = false; if (resetWorld && Net.isHost()) resetWorldOnDeath(); respawnAt(me.spawn, me.yaw); }, 4200);
   }
   function onWipe() { if (!me) return; me.downed = false; die(true); }
@@ -704,7 +782,7 @@
     G.enemies.forEach(e => { if (e.summoned) { e.remove(); G.enemies.delete(e.id); } else if (!(e.boss && G.flags['dead_' + e.type])) e.reset(); });
     if (G.activeBoss) event({ t: 'bossReset' });
   }
-  function revived(byName) { me.downed = false; me.hp = me.maxHp * 0.4; startAct('idle', 0); show('downed', false); message(`${byName} lifted you from the dark.`); A.play('shrine', me.pos, 0.5); }
+  function revived(byName) { me.downed = false; me.hp = me.maxHp * 0.4; startAct('getup', 1.4); show('downed', false); message(`${byName} lifted you from the dark.`); A.play('shrine', me.pos, 0.5); }
   function respawnAt(p, yaw) {
     me.pos.copy(p); me.pos.y = W.heightAt(p.x, p.z);
     me.hp = me.maxHp; me.st = me.maxSt; me.flasks = me.maxFlasks; me.downed = false; me.dead = false; me.lock = null;
@@ -713,12 +791,13 @@
   }
   function recalcStats() {
     const c = C(), b = HC.Items.bonus(), bf = me.buffs || {};
-    me.maxHp = Math.round(c.hp + me.vig * 12 + (me.relics.has('shard') ? 20 : 0) + b.hp);
+    me.maxHp = Math.round(c.hp + me.vig * 24 + (me.relics.has('shard') ? 20 : 0) + b.hp);
     me.maxSt = 100 + me.end * 10;
     me.maxFlasks = 4 + (me.relics.has('shard') ? 1 : 0) + (me.relics.has('charm') ? 1 : 0) + (me.bonusFlasks || 0);
     me.dmgBonus = (1 + b.dmg) * (bf.might > 0 ? 1.3 : 1);
-    me.defMul = (1 - Math.min(0.6, b.def)) * (bf.iron > 0 ? 0.6 : 1);
-    me.spdMul = 1 + b.speed; me.stMul = (1 + b.stam) * (bf.breath > 0 ? 2 : 1); me.leech = b.leech; me.luck = b.luck;
+    me.armorVal = b.armor;
+    me.defMul = (1 - Math.min(0.6, b.def)) * (bf.iron > 0 ? 0.6 : 1) * 100 / (100 + b.armor);   // 100 armor = half damage
+    me.spdMul = (1 + b.speed) * (1 - b.weight); me.stMul = (1 + b.stam) * (bf.breath > 0 ? 2 : 1); me.leech = b.leech; me.luck = b.luck;
     me.hp = Math.min(me.hp, me.maxHp); me.flasks = Math.min(me.flasks, me.maxFlasks);
   }
   // timed effects: potion buffs, regeneration, admin effects (burn, blindness, confusion)
@@ -1078,14 +1157,14 @@
   function hud(dt) {
     $('hpFill').style.width = (me.hp / me.maxHp * 100) + '%';
     $('stFill').style.width = Math.max(0, me.st / me.maxSt * 100) + '%';
-    document.querySelector('.bar.hp').style.width = (160 + me.maxHp * 0.9) + 'px';
+    document.querySelector('.bar.hp').style.width = Math.min(460, 160 + me.maxHp * 0.6) + 'px';
     document.querySelector('.bar.st').style.width = (120 + me.maxSt) + 'px';
     compass();
     hudT -= dt; if (hudT > 0) return; hudT = 0.2;
     $('flasks').innerHTML = Array.from({ length: me.maxFlasks }, (_, i) => `<span class="${i < me.flasks ? '' : 'empty'}"></span>`).join('');
     const sig = ['tears', 'silence', 'bell', 'oath'].filter(s => G.flags['sigil_' + s]).map(s => `<span class="sig">Sigil of ${{ tears: 'Tears', silence: 'Silence', bell: 'the Bell', oath: 'the Oath' }[s]}</span>`).join('');
     $('relics').innerHTML = [...me.relics].map(r => `<span>${HC.RELICS[r][0]}</span>`).join('') + (G.flags.key ? '<span>Crypt Key</span>' : '') + sig;
-    $('ashes').textContent = `${me.ash} ashes · Lv ${me.level}`;
+    $('ashes').textContent = `${me.ash} ashes · Lv ${me.level}${me.armorVal ? ' · armor ' + me.armorVal : ''}`;
     HC.Items.hud();
     $('objective').innerHTML = `<small>OBJECTIVE</small>${objective()[0]}`;
     $('area').textContent = W.areaName(me.zone);
@@ -1229,8 +1308,25 @@
         if (!keys.KeyE || !t || !t.downed || t.pos.distanceTo(me.pos) > 2.6) { startAct('idle', 0); G.reviveTarget = null; }
         else if (me.actT >= 2.4) { event({ t: 'revive', target: t.id, by: me.name }); startAct('idle', 0); G.reviveTarget = null; }
       }
+    } else if (me.act === 'draw' || me.act === 'cast' || me.act === 'charge') {
+      // holding: the bow draws / the staff gathers fire / the swing winds up; you can still shuffle around
+      const k = Math.min(1, me.actT / (me.act === 'cast' ? 1.1 : 1.0));
+      if (me.act === 'draw') me.draw = k; else me.charge = k;
+      if (me.lock) faceTarget(); else me.yaw = me.camYaw;
+      speed = c.speed * (me.act === 'charge' ? 0.25 : 0.45) * (me.spdMul || 1);
+      if (k >= 1) { me.st -= dt * 7; me.stDelay = 0.5; }
+      if (me.act === 'charge' && k >= 1 && Math.random() < dt * 6) HC.FX.spawn('ember', me.pos.clone().add(new V3(Math.sin(me.yaw) * 0.6, 1.2, Math.cos(me.yaw) * 0.6)));
+      // let go automatically when the button was released elsewhere (focus lost), stamina ran out, or a charge maxed out
+      const anyHeld = held.attack || held.heavy;
+      if (!anyHeld || me.st <= 0 || (me.act === 'charge' && me.actT > 2.5)) {
+        if (me.act === 'draw') loose(); else if (me.act === 'cast') castRelease(); else chargeRelease();
+      }
+    } else if (me.act === 'loose' || me.act === 'getup' || me.act === 'pickup' || me.act === 'interact') {
+      if (me.act === 'loose') speed = c.speed * 0.45 * (me.spdMul || 1);
+      if ((me.act === 'pickup' || me.act === 'interact') && dir.lengthSq() > 0) startAct('idle', 0);
+      if (me.actT >= me.actDur) startAct('idle', 0);
     } else if (me.act !== 'cine') {
-      const blocking = (mouse.r || keys.KeyK) && !inputLocked;   // right mouse / touch Block button / K key
+      const blocking =(mouse.r || keys.KeyK) && !inputLocked;   // right mouse / touch Block button / K key
       // touch players sprint by pushing the stick: stop at 25 stamina so there is always enough left to attack or roll
       const sprint = keys.ShiftLeft && dir.lengthSq() > 0 && me.st > (G.touch ? 25 : 0) && !blocking;
       speed = c.speed * (blocking ? 0.45 : sprint ? 1.65 : 1) * (me.speedMul || 1) * (me.spdMul || 1);
@@ -1253,7 +1349,10 @@
       }
     } else speed = 0;
     if (me.act === 'block' && me.lock) faceTarget();
+    if (['draw', 'cast', 'charge', 'loose'].includes(me.act) && !me.lock) me.yaw = me.camYaw;   // keep facing the aim while strafing
     me.avatar.speed = speed;
+    me.avatar.draw = me.draw || 0; me.avatar.charge = me.charge || 0;
+    me.avatar.pitch = Math.max(-0.9, Math.min(0.9, -me.camPitch + 0.12));
     me.pos.y = W.heightAt(me.pos.x, me.pos.z);
     me.vel.copy(me.pos).sub(prev).divideScalar(Math.max(dt, 1e-3));
     me.look = me.camYaw;
@@ -1284,7 +1383,8 @@
       camera.position.copy(pos); camera.lookAt(pos.clone().add(f));
     } else {
       const target = me.pos.clone().add(new V3(0, 1.55, 0)).addScaledVector(right, 0.45);
-      const dist = me.lock && me.lock.boss ? 4.5 + me.lock.cfg.h * 0.6 : 4.3;
+      G.camZoom = HC.damp(G.camZoom || 1, me.act === 'draw' ? 0.62 + 0.1 * (1 - me.draw) : 1, 6, dt);   // over the shoulder while drawing
+      const dist = (me.lock && me.lock.boss ? 4.5 + me.lock.cfg.h * 0.6 : 4.3) * G.camZoom;
       const pos = target.clone().addScaledVector(f, -dist);
       const fr = W.rayFree(target, pos); if (fr < 1) pos.lerpVectors(target, pos, Math.max(0.15, fr));
       const gy2 = W.heightAt(pos.x, pos.z) + 0.35; if (pos.y < gy2) pos.y = gy2;
@@ -1340,6 +1440,12 @@
     startAct, grantRelic, ringBell, goDown, respawnAt, travel, camera: () => camera,
     resetEnemies: () => { if (Net.isHost()) resetWorldOnDeath(); } };
   HC.debug = { tp: (x, z) => { me.pos.set(x, W.heightAt(x, z), z); }, flags: () => G.flags, me: () => me, G, cam: () => camera, W,
+    // dev only (local test server): render one frame, optionally from a given camera, and upload it as /shot
+    snap(name, pos, look) {
+      if (pos) { camera.position.copy(pos); camera.lookAt(look); camera.updateMatrixWorld(); }
+      if (composer) composer.render(); else renderer.render(scene, camera);
+      return fetch('/shot?name=' + encodeURIComponent(name), { method: 'POST', body: renderer.domElement.toDataURL('image/png') }).then(r => r.status);
+    },
     step(n = 60) { for (let i = 0; i < n; i++) { G.t += 1 / 60; update(1 / 60); } },
     bench(n = 20) { const gl = renderer.getContext(), t0 = performance.now(); for (let i = 0; i < n; i++) { update(1 / 60); if (composer) composer.render(); else renderer.render(scene, camera); } gl.finish(); return ((performance.now() - t0) / n).toFixed(1) + ' ms/frame, calls=' + renderer.info.render.calls + ', tris=' + renderer.info.render.triangles; } };
 })();

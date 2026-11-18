@@ -158,6 +158,10 @@
     roar: 'roar', boss_idle: 'boss_idle', boom: 'boom', door: 'door', gate: 'gate', creak: 'creak', crow: 'creak', pickup: 'pickup',
     page: 'page', flask: 'flask', knock: 'knock', fire: 'fire', drip: 'drip', stone: 'hit_stone',
   };
+  // newer recorded events play their own sample of the same name
+  ['bow_draw', 'bow_shoot', 'bow_nock', 'xbow_shoot', 'xbow_reload', 'arrow_fly', 'arrow_hit', 'arrow_thunk', 'draw_blade', 'draw_dagger', 'sheath',
+    'swing_dagger', 'swing_spear', 'swing_axe', 'parry', 'hit_plate', 'chop', 'spell', 'glass', 'inv_open', 'coins', 'jingle_rare', 'jingle_win', 'jingle_lose',
+    'ui_click', 'equip_cloth', 'equip_metal', 'drop_item', 'laugh', 'goblin'].forEach(n => { MAP[n] = n; });
   const RATE = { crow: 1.4, stone: 0.7 };
   const LAYER = { bell: ['bell'], ping: ['ping'], shrine: ['shrine'], death: ['death'], gate: ['rumble'], boom: ['sub'], roar: ['sub'] };
 
@@ -171,13 +175,13 @@
     // ---- player actions: several layers so they read clearly over combat
     if (name === 'attack') {          // light combo hit; opts.combo 0..2 gets a little bigger each step
       const c = opts.combo || 0;
-      sample('swing', d, t, 1.05 - c * 0.06, 1.0 + c * 0.15);
+      sample(opts.swing || 'swing', d, t, 1.05 - c * 0.06, 1.0 + c * 0.15);
       PROC.whoosh(d, t + 0.04, 0.22 + c * 0.05, 2200, 520, 0.22 + c * 0.06);
       if (opts.armor) sample('step_armor', d, t, 1.1, 0.35);
     }
     if (name === 'heavyAttack') {     // wind-up rattle, then a deep slow cut
       if (opts.armor !== false) sample('step_armor', d, Math.max(ctx.currentTime, t - 0.18), 0.9, 0.45);
-      sample('swing_heavy', d, t, 0.92, 1.2);
+      sample(opts.swing || 'swing_heavy', d, t, 0.92, 1.2);
       PROC.whoosh(d, t + 0.03, 0.42, 1100, 160, 0.42);
     }
     if (name === 'dodge') {           // cloth + air, body hits the ground, light landing step
@@ -188,7 +192,8 @@
       if (opts.armor) sample('step_armor', d, t + 0.2, 0.85, 0.5);
     }
     if (name === 'shot') {            // bow twang / crossbow clack / staff fire-cast
-      if (opts.kind === 'staff') { sample('fire', d, t, 1.3, opts.heavy ? 1.1 : 0.7); PROC.whoosh(d, t, opts.heavy ? 0.5 : 0.3, 700, 2400, opts.heavy ? 0.4 : 0.28); }
+      if (opts.kind === 'staff') { sample('spell', d, t, opts.heavy ? 0.8 : 1.1, 0.9); sample('fire', d, t, 1.3, opts.heavy ? 0.9 : 0.5); PROC.whoosh(d, t, opts.heavy ? 0.5 : 0.3, 700, 2400, opts.heavy ? 0.4 : 0.28); }
+      else if (opts.kind === 'crossbow') { sample('xbow_shoot', d, t, 1, 1.0); PROC.thud(d, t, 0.3); }
       else {
         const cb = opts.kind === 'crossbow';
         PROC.whoosh(d, t + 0.01, 0.26, 3200, 1200, cb ? 0.3 : 0.24);
@@ -196,6 +201,7 @@
         sample(cb ? 'clang' : 'swing', d, t, cb ? 1.8 : 1.5, cb ? 0.25 : 0.55);
       }
     }
+    if (name === 'screech' && Math.random() < 0.4) sample('goblin', d, t, 0.8, 0.7);   // more variety for the hollow
     if (name === 'bell') sample('bellhit', d, t, 0.5, 0.6);
     (LAYER[name] || []).forEach(l => PROC[l](d, t));
     if (name === 'step' && opts.wet) PROC.splash(d, t);
