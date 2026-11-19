@@ -320,6 +320,7 @@
         const g = GRADE.find(([re]) => re.test(n));
         if (g) { g[1](m); if (ASSET_TINT[asset]) m.color.set(ASSET_TINT[asset]); if (m.map && /Leaves|Grass/.test(n)) { m.alphaTest = 0.5; m.side = THREE.DoubleSide; } return; }
         if (/^MI_|Superhero|Regular|Ranger|Peasant/.test(n)) return;   // character materials are tinted per character
+        if (/^Car_/.test(n)) return;                                   // the Corolla keeps its factory finish
         if (/^stone|^slate/.test(n) && /church|cathedral|castle|gatehouse|keep|watchtower|arch|pillar|well|shrine|sarcophagus|wall/.test(asset)) {
           W.triplanar(m, /castle|gatehouse|keep|watchtower/.test(asset) ? 'brick' : 'blocks', 0.4, /slate/.test(n) ? 0x4a4a52 : /dark/.test(n) ? 0x6a6a6a : 0x9a968e);
           return;
@@ -348,7 +349,7 @@
     let box = new THREE.Box3().setFromObject(o);
     // never float: on a slope, sink the object until its lowest corner touches the lowest ground under its footprint
     const ground = W.heightAt(x, z);
-    if (x < 1500 && (y === undefined || Math.abs(y - ground) < 0.6)) {
+    if (x < 1500 && (y === undefined || Math.abs(y - ground) < 1.5)) {
       const cx = (box.min.x + box.max.x) / 2, cz = (box.min.z + box.max.z) / 2, hx = (box.max.x - box.min.x) * 0.4, hz = (box.max.z - box.min.z) * 0.4;
       let lo = Infinity;
       for (const [u, v] of [[0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1], [0, -1], [0, 1], [-1, 0], [1, 0]]) lo = Math.min(lo, W.heightAt(cx + u * hx, cz + v * hz));
@@ -401,7 +402,7 @@
         const im = new THREE.InstancedMesh(geo, mat, items.length);
         items.forEach((it, i) => {
           e.set(it.rx || 0, it.ry || 0, it.rz || 0); q.setFromEuler(e);
-          m4.compose(new V3(it.x, it.y !== undefined ? it.y : W.footMin(it.x, it.z, footR * it.s) - (it.sink || 0), it.z), q, new V3(it.s, it.sy || it.s, it.s));
+          m4.compose(new V3(it.x, it.y !== undefined ? it.y : W.footMin(it.x, it.z, footR * it.s) - (it.sink || 0.05), it.z), q, new V3(it.s, it.sy || it.s, it.s));
           im.setMatrixAt(i, m4);
         });
         im.instanceMatrix.needsUpdate = true;

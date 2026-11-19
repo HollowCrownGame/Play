@@ -418,6 +418,29 @@
       carry: { clip: 'Idle_Loop', t: 0.5, rot: [Math.PI / 2 - 0.25, 0, 0], palm: true }, aim: { clip: 'Pistol_Aim_Neutral', t: 0.4, rot: [0, 0, 0], palm: true } },
     staff: { ranged: true, charge: 'cast', light: { dmg: 30, poise: 20, dur: 0.55, hit: 0.2, st: 16, proj: 'orb', speed: 26 }, heavy: { dmg: 56, poise: 50, dur: 0.7, hit: 0.3, st: 36, proj: 'wave', speed: 18, pierce: true }, idle: 'Idle_Loop', carry: UPRIGHT, carryArm: true, fightArm: true },
   };
+  // the admin Corolla: on foot you fight with the real fists weapon (same jab-cross combos, hook, sounds and stats as the
+  // cestus), just with nothing on your knuckles. It is driven: see js/car.js
+  HC.STYLES.car = Object.assign({}, HC.STYLES.fists, { noHold: true });
+  // no weapon at all: exactly the same bare-fisted fighting as above
+  HC.STYLES.unarmed = Object.assign({}, HC.STYLES.fists, { noHold: true });
+  // ---- character customization (colours, parts, build) and cosmetic accessories (models/acc_*.glb)
+  HC.LOOKS = {
+    outfit: [['Ranger', 0x9e8f82], ['Crimson', 0xa85048], ['Midnight', 0x4e5f80], ['Ash', 0x9c9c9c], ['Bone', 0xdacfb6], ['Forest', 0x66885a], ['Soot', 0x4a4440], ['Royal', 0x7a5a9e], ['Gilded', 0xc4a25e]],
+    skin: [['Default', 0xffffff], ['Pale', 0xffe8dc], ['Warm', 0xe0b494], ['Tan', 0xb88a66], ['Brown', 0x8a5e40], ['Deep', 0x5e3e2c], ['Ghoul', 0xa4b4a2], ['Ashen', 0x9a9aa4]],
+    hair: [['Brown', 0xffffff], ['Black', 0x302824], ['Blond', 0xe8c080], ['Red', 0xc0502c], ['White', 0xf0f0f0], ['Grey', 0x8a8a8a], ['Blue', 0x6070c8], ['Green', 0x60a060]],
+    // slot -> accessories: [id, name, bone, model-space offset from that bone (measured in the idle pose)]
+    acc: {
+      head: [['acc_hat', 'Hunter\'s hat'], ['acc_witch', 'Witch\'s hat'], ['acc_crown', 'Iron crown'], ['acc_horns', 'Horns'], ['acc_halo', 'Halo']],
+      face: [['acc_plague', 'Plague mask'], ['acc_eyepatch', 'Eyepatch']],
+      neck: [['acc_scarf', 'Scarf']],
+      back: [['acc_pack', 'Backpack'], ['acc_quiver', 'Quiver'], ['acc_cape', 'Cloak'], ['acc_wings', 'Bat wings']],
+      shoulder: [['acc_raven', 'Raven']],
+      hip: [['acc_skull', 'Skull charm']],
+    },
+    anchor: { head: ['Head', [0, 0.225, 0.02]], face: ['Head', [0, 0.115, 0.155]], neck: ['neck_01', [0, 0.0, 0.012]], back: ['spine_03', [0, 0.06, -0.165]],
+      shoulder: ['upperarm_l', [-0.03, 0.085, -0.01]], hip: ['thigh_r', [-0.075, 0.07, 0.02]] },
+  };
+  HC.LOOK_DEFAULT = { outfit: 0, skin: 0, hair: 0, hood: 1, paul: 1, belt: 1, brace: 1, lantern: 1, height: 1, build: 1, acc: {} };
   // two-handed weapons: the left fist always holds the haft too. slide = where (metres along the weapon, from the
   // right hand toward the pommel / butt) the left hand closes. They also slow your walk a little (game.js).
   HC.TWO_HAND = { greatsword: { slide: -0.16 }, katana: { slide: -0.14 }, greataxe: { slide: -0.42 }, hammer: { slide: -0.36 },
@@ -464,7 +487,7 @@
       this.style = HC.STYLES[style] ? style : 'sword';
       this.hand = S.hand || 'hand_r';
       this.stances = {}; this.stanceKey = null;
-      if (!(HC.assets && HC.assets[model])) { this.weapon = null; return; }
+      if (!(HC.assets && HC.assets[model]) || S.noHold) { this.weapon = null; this.lh = null; this.updateShieldVis && this.updateShieldVis(); return; }
       const r = this.rig;
       if (S.ranged) {
         this.weapon = r.attach(model, this.hand, { mode: 'none' });
@@ -520,7 +543,7 @@
     // two-handed weapons: reach the left arm to the haft and close the fist around it (on top of any clip)
     leftHandOnHaft(dt, a) {
       const L = this.lh, r = this.rig; if (!L || !this.weapon) return;
-      const on = this.weapon.visible && !['roll', 'downed', 'revive', 'drink', 'throw', 'getup', 'pickup', 'interact', 'rest', 'hurt'].includes(a) && !this.air;
+      const on = this.weapon.visible && !['roll', 'downed', 'revive', 'drink', 'throw', 'getup', 'pickup', 'interact', 'rest', 'hurt', 'drive'].includes(a) && !this.air;
       L.w = damp(L.w, on ? 1 : 0, on ? 9 : 14, dt);
       if (L.w < 0.01) return;
       r.model.updateMatrixWorld(true);
@@ -536,13 +559,86 @@
       L.fingers.forEach(([b, q]) => b.quaternion.slerp(q, L.w));
       h.updateMatrixWorld(true);
     }
+    // customization: look = HC.LOOK_DEFAULT-shaped object (see the Character screen in game.js)
+    setLook(look) {
+      const L = Object.assign({}, HC.LOOK_DEFAULT, look || {}); L.acc = Object.assign({}, (look && look.acc) || {});
+      const key = JSON.stringify(L); if (this.lookKey === key) return; this.lookKey = key; this.look = L;
+      const X = HC.LOOKS, model = this.rig.model;
+      if (!this.own) { this.own = []; model.traverse(o => { if (o.isSkinnedMesh && !o.userData.acc && !o.userData.armor) this.own.push(o); }); }
+      const pick = (arr, i) => (arr[i] || arr[0])[1];
+      model.traverse(o => {
+        if (!o.isMesh || o.userData.acc) return;
+        if (!o.userData.ownMat) { o.material = Array.isArray(o.material) ? o.material.map(m => m.clone()) : o.material.clone(); o.userData.ownMat = true; o.userData.baseCol = (Array.isArray(o.material) ? o.material : [o.material]).map(m => m.color ? m.color.clone() : null); }
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach((m, i) => {
+          if (!m.color) return;
+          const base = o.userData.baseCol[i]; if (!base) return;
+          // outfit 0 keeps the player's own co-op colour; the others replace it. Skin and hair tint the textures.
+          if (/MI_Ranger/.test(m.name)) {
+            // re-dye only the cloth: the green parts of the outfit texture take the new colour, leather stays leather
+            if (!m.userData.dye) {
+              m.userData.dye = { value: new THREE.Color(1, 1, 1) }; m.userData.dyeAmt = { value: 0 };
+              m.onBeforeCompile = sh => {
+                sh.uniforms.uDye = m.userData.dye; sh.uniforms.uDyeAmt = m.userData.dyeAmt;
+                sh.fragmentShader = 'uniform vec3 uDye; uniform float uDyeAmt;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+                  float dyeMask = smoothstep(1.04, 1.3, diffuseColor.g / (max(diffuseColor.r, diffuseColor.b) + 0.003));
+                  float dyeLum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+                  diffuseColor.rgb = mix(diffuseColor.rgb, dyeLum * uDye * 2.4, dyeMask * uDyeAmt);`);
+              };
+              m.customProgramCacheKey = () => 'hcDye'; m.needsUpdate = true;
+            }
+            if (L.outfit) { m.color.setRGB(0.92, 0.92, 0.92); m.userData.dye.value.setHex(pick(X.outfit, L.outfit)); m.userData.dyeAmt.value = 1; }
+            else { m.color.copy(base); m.userData.dyeAmt.value = 0; }
+          }
+          else if (/Superhero|Regular/.test(m.name)) m.color.copy(base).multiply(new THREE.Color(pick(X.skin, L.skin)));
+          else if (/MI_Hair/.test(m.name)) m.color.copy(base).multiply(new THREE.Color(pick(X.hair, L.hair)));
+        });
+      });
+      this.mats = []; model.traverse(o => { if (o.isMesh && o.material && !o.userData.acc) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { if (m.emissive) { m.userData.baseEmissive = m.userData.baseEmissive || m.emissive.clone(); } this.mats.push(m); }); });
+      this.applyPartVis();
+      if (this.lantern) this.lantern.visible = !!L.lantern;
+      model.scale.set(L.build || 1, L.height || 1, L.build || 1);
+      // accessories: re-attach what changed
+      this.accObjs = this.accObjs || {};
+      for (const slot of Object.keys(X.acc)) {
+        const want = L.acc[slot] || '', cur = this.accObjs[slot];
+        if (cur && cur.userData.accId === want && cur.userData.hood === !!L.hood) continue;
+        if (cur && cur.parent) cur.parent.remove(cur); delete this.accObjs[slot];
+        if (!want || !HC.assets || !HC.assets[want]) continue;
+        const [bone, off] = X.anchor[slot]; if (!this.rig.b[bone]) continue;
+        const lift = slot === 'head' && L.hood ? 0.045 : 0;                // sit on the hood when it is up
+        const o = this.rig.withPose('Idle_Loop', 0.0, () => {
+          this.rig.model.updateMatrixWorld(true);
+          const inv = new THREE.Matrix4().copy(this.rig.model.matrixWorld).invert();
+          const p = new V3().setFromMatrixPosition(this.rig.b[bone].matrixWorld).applyMatrix4(inv).add(new V3(off[0], off[1] + lift, off[2]));
+          return this.rig.attach(want, bone, { mode: 'model', pos: p });
+        });
+        if (!o) continue;
+        o.userData.accId = want; o.userData.hood = !!L.hood;
+        o.traverse(m => { if (m.isMesh) { m.userData.acc = true; if (slot === 'head' || slot === 'face') m.userData.headwear = true; if (/Glow/.test(m.material.name)) m.material.toneMapped = false; } });
+        this.accObjs[slot] = o;
+      }
+      if (!this.headVisible) { this.headVisible = true; this.setHeadVisible(false); }
+    }
+    // which outfit parts show: the look's choices, minus anything armor is covering
+    applyPartVis() {
+      const L = this.look || HC.LOOK_DEFAULT, A = this.armorMeshes || {};
+      const hide = [];
+      if (A.head || !L.hood) hide.push(/Head_Hood/);
+      if (A.head) hide.push(/Hair_/);
+      if (A.chest || !L.paul) hide.push(/Acc_Pauldron/);
+      if (A.chest || !L.belt) hide.push(/Body_Belt/);
+      if (A.arms || !L.brace) hide.push(/Arms_Bracer/);
+      if (L.acc && (L.acc.head === 'acc_witch' || L.acc.head === 'acc_hat')) hide.push(/Head_Hood/);   // brimmed hats replace the hood
+      (this.own || []).forEach(o => { const n = o.name + ' ' + (o.parent ? o.parent.name : ''); o.visible = !hide.some(r => r.test(n)); });
+    }
     // armor: skinned pieces from models/armor_<set>.glb, re-bound to this character's own skeleton so they bend
     // with every animation. vis = { head: 'plate', chest: 'chain', arms: null, legs: 'leather' }
     setArmor(vis) {
       vis = vis || {};
       const model = this.rig.model;
       this.armorMeshes = this.armorMeshes || {};
-      if (!this.own) { this.own = []; model.traverse(o => { if (o.isMesh) this.own.push(o); }); }
+      if (!this.own) { this.own = []; model.traverse(o => { if (o.isSkinnedMesh && !o.userData.acc && !o.userData.armor) this.own.push(o); }); }
       ['head', 'chest', 'arms', 'legs'].forEach(slot => {
         const want = vis[slot] || null, cur = this.armorMeshes[slot];
         if (cur && cur.userData.set === want) return;
@@ -559,15 +655,12 @@
           m.bind(new THREE.Skeleton(bones, src.skeleton.boneInverses), src.bindMatrix);
           W.applyLowMaterials(m);
           if (m.material.isMeshStandardMaterial && m.material.metalness > 0.4) { m.material = m.material.clone(); m.material.metalness = 0.4; m.material.roughness = Math.min(m.material.roughness, 0.55); }
-          m.frustumCulled = false; grp.add(m);
+          m.frustumCulled = false; m.userData.armor = true; grp.add(m);
         }
         model.add(grp); this.armorMeshes[slot] = grp;
       });
       // hide the outfit parts each piece replaces (the hood and hair under a helmet, the leather pauldron, the bracers)
-      const hide = [];
-      if (this.armorMeshes.head) hide.push(/Head_Hood|Hair_/);
-      if (this.armorMeshes.chest) hide.push(/Acc_Pauldron|Body_Belt/);
-      if (this.armorMeshes.arms) hide.push(/Arms_Bracer/);
+      // - shared with the Character screen's choices in applyPartVis()
       // ...and cut away the cloth faces underneath each piece, so nothing can poke through the armor when it moves
       const cuts = [];
       if (this.armorMeshes.chest) cuts.push({ mesh: /Ranger_Body$/, bones: /^(spine_0[123]|clavicle_[lr])$/, ymin: 1.02 });
@@ -575,9 +668,9 @@
         cuts.push({ mesh: /Feet_Boots/, bones: /^calf_[lr]$/, ymin: 0.16 });
         if (['chain', 'bone', 'plate'].includes(this.armorMeshes.legs.userData.set)) cuts.push({ mesh: /Ranger_Legs/, bones: /^thigh_[lr]$/, ymin: 0.62, ymax: 0.97 });
       }
+      this.applyPartVis();
       this.own.forEach(o => {
         const n = o.name + ' ' + (o.parent ? o.parent.name : '');
-        o.visible = !hide.some(r => r.test(n));
         if (!o.isSkinnedMesh) return;
         if (!o.userData.fullGeo) o.userData.fullGeo = o.geometry;
         const mine = cuts.filter(c => c.mesh.test(n));
@@ -638,11 +731,20 @@
       a.setXYZ(0, S.top.x, S.top.y, S.top.z); a.setXYZ(1, m.x, m.y, m.z); a.setXYZ(2, S.bottom.x, S.bottom.y, S.bottom.z); a.needsUpdate = true;
     }
     setLantern(on) { this.lanternGlow.forEach(m => m.color.setHex(on ? 0xffb060 : 0x221810)); }
-    setHeadVisible(v) { const h = this.rig.b.Head; if (h && this.headVisible !== v) { h.scale.setScalar(v ? 1 : 0.001); this.headVisible = v; } }
+    // first person hides everything on the head (face, hair, hood, helmet, hats) so the camera never looks out from inside it
+    setHeadVisible(v) {
+      const h = this.rig.b.Head; if (!h || this.headVisible === v) return;
+      h.scale.setScalar(v ? 1 : 0.001); this.headVisible = v;
+      const re = /Hood|Hair|Head|Eye|Brow|Lash|Teeth|Tongue|Beard|Face|Hat|Helm|Mask|Horn|Crown|Acc_Head/i;
+      const list = [];
+      this.rig.model.traverse(o => { if (o.isMesh && (re.test(o.name) || re.test(o.parent ? o.parent.name : '') || o.userData.headwear)) list.push(o); });
+      if (this.armorMeshes && this.armorMeshes.head) this.armorMeshes.head.traverse(o => { if (o.isMesh) list.push(o); });
+      list.forEach(o => { if (!v) { o.userData.fpWas = o.visible; o.visible = false; } else if (o.userData.fpWas !== undefined) { o.visible = o.userData.fpWas; delete o.userData.fpWas; } });
+    }
     update(dt) {
       const r = this.rig, a = this.act, S = HC.STYLES[this.style] || HC.STYLES.sword;
       // polearms and the staff: the weapon arm stays raised (upright grip) except while swinging
-      const arm = !!(this.weapon && S.carryArm) && (S.fightArm || !FIGHT_ACTS.includes(a)) && !['roll', 'downed', 'revive', 'rest', 'hurt', 'throw', 'getup', 'pickup'].includes(a);
+      const arm = !!(this.weapon && S.carryArm) && (S.fightArm || !FIGHT_ACTS.includes(a)) && !['roll', 'downed', 'revive', 'rest', 'hurt', 'throw', 'getup', 'pickup', 'drive'].includes(a);
       const sfx = arm ? '|norarm' : '';
       const fresh = a !== this.lastAct || this.lastArm !== arm;
       const prevAct = this.lastAct;
@@ -704,6 +806,7 @@
           break;
         }
         case 'revive': r.play('Fixing_Kneeling'); break;
+        case 'drive': r.play('Sitting_Idle_Loop', { fade: 0.3 }); break;
         case 'downed': if (fresh) r.play('Death01', { loop: false, restart: true, fade: 0.2 }); break;
         case 'getup': if (fresh) r.play('LayToIdle', { loop: false, restart: true, ts: HC.CLIPS.LayToIdle.duration / Math.max(0.4, this.actDur), fade: 0.1 }); break;
         case 'rest':
@@ -733,6 +836,12 @@
       this.wasLayered = !!layer && layer[2] === 'upper';
       if (layer) r.layer(layer[0], layer[1], layer[2]); else r.layer(null);
       r.update(dt);
+      // first person: bend the chest and neck with where you look, so the arms and weapon stay in view
+      if (this.fp && !['drive', 'roll', 'downed', 'revive', 'rest', 'getup'].includes(a)) {
+        const p = Math.max(-0.8, Math.min(0.8, (this.pitch || 0) - 0.12));
+        r.overlay('spine_02', -p * 0.3, 0, 0); r.overlay('spine_03', -p * 0.35, 0, 0);
+        if (r.b.neck_01) r.overlay('neck_01', -p * 0.25, 0, 0);
+      }
       // ---- bow: turn side-on, the bow arm points at the target, the other hand draws the string to the jaw
       const drawing = this.style === 'bow' && (a === 'draw' || a === 'loose') && this.weapon;
       this.drawW = damp(this.drawW, drawing ? 1 : 0, drawing ? 14 : 10, dt);
@@ -752,6 +861,13 @@
         if (this.string && this.drawW <= 0.01) { this.setString(null); if (this.nockArrow) this.nockArrow.visible = false; }
       }
       this.leftHandOnHaft(dt, a);
+      // behind the wheel: both hands on the rim (10 and 2), following it as it turns
+      if (a === 'drive' && this.driveGrips) {
+        r.model.updateMatrixWorld(true);
+        const g = this.driveGrips, pl = r.b.lowerarm_l, pr = r.b.lowerarm_r;
+        if (pl) r.ik('upperarm_l', 'lowerarm_l', 'hand_l', g.left, pl.getWorldPosition(new V3()).add(new V3(0, -0.4, 0)), 1);
+        if (pr) r.ik('upperarm_r', 'lowerarm_r', 'hand_r', g.right, pr.getWorldPosition(new V3()).add(new V3(0, -0.4, 0)), 1);
+      }
       this.updateShieldStance(dt);
       r.hitFlash(dt);
     }
@@ -909,6 +1025,14 @@
         const r = (e.cfg.r || 0.5) + (p.type === 'wave' ? 1.6 : p.type === 'void' ? 0.5 * (p.size || 1) : p.type === 'bomb' ? 0.5 : 0.35), cy = e.pos.y + Math.min(e.cfg.h, 3) * 0.55;
         if (Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z) < r && Math.abs(cy - p.pos.y) < Math.max(1.1, e.cfg.h * 0.6)) {
           p.hit.add(e.id); HC.Game.projHit(e, p);
+          if (!p.pierce) dead = true;
+        }
+      });
+      // PvP worlds: your shots hit other players too
+      if (p.friendly && p.sim && !dead && HC.Game.pvp) HC.Game.players.forEach(pl => {
+        if (dead || pl.local || pl.downed || p.hit.has(pl.id)) return;
+        if (Math.hypot(pl.pos.x - p.pos.x, pl.pos.z - p.pos.z) < 0.6 + (p.type === 'wave' ? 1.6 : 0) && Math.abs(pl.pos.y + 1 - p.pos.y) < 1.2) {
+          p.hit.add(pl.id); HC.Game.pvpHit(pl, p.dmg);
           if (!p.pierce) dead = true;
         }
       });

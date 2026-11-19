@@ -47,6 +47,7 @@
 
   const FIELDS = [
     // how the world looks: follow the day/night cycle, or keep one time of day for yourself (co-op still shares the real time and the blood moon)
+    ['pvp', 'PvP: players can hurt each other (in worlds you host or open publicly)', 'check'],
     ['look', 'World look', 'select', { cycle: 'Day / night cycle', day: 'Always daytime (grey daylight)', dusk: 'Always dusk', night: 'Always night (the eclipse)' }],
     ['brightness', 'Brightness', 'range', [0.6, 1.8, 0.05]],
     ['dayLen', 'Length of a full day (minutes, solo / host)', 'range', [4, 60, 1]],

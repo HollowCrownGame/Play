@@ -130,9 +130,10 @@
   G.applySettings = function () {
     const v = SV();
     opt.sens = v.sens;
-    if (camera) { camera.fov = v.fov; camera.updateProjectionMatrix(); }
+    if (camera) { camera.fov = v.fov + (me && me.fp ? 10 : 0); camera.updateProjectionMatrix(); }
     if (finalPass) finalPass.uniforms.grain.value = v.grain ? 1 : 0;
     W.viewMul = v.viewDist;
+    if (G.started && Net.mode === 'host' && !!v.pvp !== !!G.pvp) { G.pvp = !!v.pvp; message(G.pvp ? 'PvP is ON in your world.' : 'PvP is off in your world.'); if (G.isPublic) listPublic(); }
     if (W.ash) W.ash.visible = v.particles !== false;
     show('fps', !!v.showFps && G.started);
     if (renderer && v.renderScale !== 'auto') { DR.scale = parseFloat(v.renderScale); renderer.setPixelRatio(DR.scale); renderer.setSize(innerWidth, innerHeight); if (composer) composer.setSize(innerWidth, innerHeight); }
@@ -143,14 +144,54 @@
   $('btnSolo').onclick = () => { readOpts(); Net.mode = 'solo'; G.roster = [{ pid: 'p0', name: opt.name, cls: opt.cls, slot: 0 }]; beginGame(); };
   $('btnHost').onclick = () => {
     readOpts(); $('netStatus').textContent = 'Lighting the signal fire...'; Net.handler = onNet;
-    Net.host({ ready: code => { G.roster = [{ pid: 'p0', name: opt.name, cls: opt.cls, slot: 0 }]; $('lobbyCode').textContent = code; show('title', false); show('lobby'); renderLobby(); }, error: e => $('netStatus').textContent = e });
+    Net.host({ ready: code => { G.worldCode = code; G.roster = [{ pid: 'p0', name: opt.name, cls: opt.cls, slot: 0 }]; $('lobbyCode').textContent = code; show('title', false); show('lobby'); renderLobby(); }, error: e => $('netStatus').textContent = e });
   };
   $('btnJoin').onclick = () => {
     const code = $('inCode').value.trim().toUpperCase();
     if (code.length < 5) { $('netStatus').textContent = 'Enter the five-letter code from your host.'; return; }
     readOpts(); $('netStatus').textContent = 'Searching the dark for your friends...'; Net.handler = onNet;
-    Net.join(code, { status: t => $('netStatus').textContent = t, ready: () => { Net.send({ t: 'hello', name: opt.name, cls: opt.cls }); $('lobbyCode').textContent = code; show('title', false); show('lobby'); show('btnStart', false); show('lobbyWait'); }, error: e => $('netStatus').textContent = e });
+    Net.join(code, { status: t => $('netStatus').textContent = t, ready: () => { G.worldCode = code; Net.send({ t: 'hello', name: opt.name, cls: opt.cls }); $('lobbyCode').textContent = code; show('title', false); show('lobby'); show('btnStart', false); show('lobbyWait'); }, error: e => $('netStatus').textContent = e });
   };
+  // ---- public worlds: join a random open one, or open your own that anyone can drop into
+  const OL = () => HC.Online && HC.Online.ready ? HC.Online : null;
+  $('btnPublic').onclick = async () => {
+    readOpts(); Net.handler = onNet; $('netStatus').textContent = 'Looking for a public world...';
+    let list = [];
+    try { list = OL() ? await OL().publicLobbies() : []; } catch (e) { list = []; }
+    list = list.filter(l => l.host !== (OL() && OL().uid)).sort(() => Math.random() - 0.5);
+    const tryJoin = i => {
+      if (i >= list.length) return hostPublic();
+      const L = list[i];
+      $('netStatus').textContent = `Joining ${L.hostName || 'a traveler'}'s world (${L.players || 1}/${L.max || 6}${L.pvp ? ', PvP on' : ''})...`;
+      Net.close(); Net.handler = onNet;
+      Net.join(L.code, {
+        status: t => $('netStatus').textContent = t,
+        ready: () => { G.worldCode = L.code; G.isPublic = true; Net.send({ t: 'hello', name: opt.name, cls: opt.cls }); $('lobbyCode').textContent = L.code; show('title', false); show('lobby'); show('btnStart', false); show('lobbyWait'); },
+        error: () => tryJoin(i + 1),
+      });
+    };
+    tryJoin(0);
+  };
+  function hostPublic() {
+    $('netStatus').textContent = 'No open worlds right now - opening yours for others to join...';
+    Net.close(); Net.handler = onNet; Net.maxPlayers = 6;
+    Net.host({
+      ready: code => { G.worldCode = code; G.isPublic = true; G.roster = [{ pid: 'p0', name: opt.name, cls: opt.cls, slot: 0 }]; beginGame(); listPublic(); },
+      error: e => $('netStatus').textContent = e,
+    });
+  }
+  function listPublic() {
+    if (!G.isPublic || Net.mode !== 'host' || !OL()) return;
+    OL().listLobby(G.worldCode, { hostName: opt.name, players: Math.max(1, G.players.size), max: Net.maxPlayers || 6, pvp: !!G.pvp }).catch(e => console.warn('listing', e));
+    clearTimeout(G.listT); G.listT = setTimeout(listPublic, 15000);
+  }
+  // where you are, for admins running commands from other worlds
+  function presence() {
+    if (!OL() || !me) return;
+    OL().setPresence({ name: me.name, where: Net.mode === 'solo' ? 'solo' : (G.worldCode || Net.code || '?'), pid: Net.pid, pub: !!G.isPublic }).catch(() => { });
+    clearTimeout(G.presT); G.presT = setTimeout(presence, 20000);
+  }
+  addEventListener('beforeunload', () => { if (OL()) { OL().clearPresence(); if (G.isPublic && Net.mode === 'host') OL().unlistLobby(G.worldCode); } });
   $('btnStart').onclick = () => { Net.broadcast({ t: 'start', flags: G.flags }); beginGame(); };
   function renderLobby() { $('lobbyList').innerHTML = (G.roster || []).map(r => `<li>${esc(r.name)}${r.pid === Net.pid ? ' <span class="small">(you)</span>' : ''}</li>`).join(''); }
 
@@ -175,11 +216,14 @@
         (G.roster || []).forEach(addPlayer);
         me = G.players.get(Net.pid);
         if (!me) { addPlayer({ pid: Net.pid, name: opt.name, cls: opt.cls, slot: 0 }); me = G.players.get(Net.pid); }
-        applyLoadout(); HC.Items.onChange(applyLoadout);
+        applyLoadout(); HC.Items.onChange(applyLoadout); applyMyLook();
         respawnAt(W.START, Math.PI);
         me.spawn = W.START.clone(); me.camPitch = 0.12;
         G.horror = { appT: 30 + Math.random() * 30, stepT: 45 + Math.random() * 40, mimicT: 80 + Math.random() * 60, bellT: 60 };
         show('loading', false); show('hud'); G.started = true; G.applySettings();
+        if (Net.mode === 'host') G.pvp = !!SV().pvp;
+        setTimeout(presence, 1500);
+        if (G.isPublic) message(`Public world ${G.worldCode}: other players can drop in any time.${G.pvp ? ' PvP is ON.' : ''}`);
         applyFlagsVisuals();
         setTimeout(() => openNote('letter'), 900);
         setTimeout(ringBell, 6000);
@@ -204,12 +248,13 @@
     if (!me) return;
     const w = HC.Items.weapon(), v = HC.Items.visual(w ? w.b : null, w ? w.r : 0);
     me.wb = w ? w.b : ''; me.wr = w ? w.r : 0;
-    me.avatar.setWeapon(w ? v.model : null, w ? v.style : 'sword', v.glow, v.amt);
+    me.avatar.setWeapon(w ? v.model : null, w ? v.style : 'unarmed', v.glow, v.amt);
     me.armorCode = HC.Items.armorCode(); me.avatar.setArmor(HC.Items.armorVisual(me.armorCode));
     me.shieldCode = HC.Items.shieldCode(); me.avatar.setShield(me.shieldCode || null);
+    syncCar();
     recalcStats();
   }
-  function removePlayer(pid) { const p = G.players.get(pid); if (!p) return; scene.remove(p.avatar.root); G.players.delete(pid); }
+  function removePlayer(pid) { const p = G.players.get(pid); if (!p) return; scene.remove(p.avatar.root); if (p.car) p.car.dispose(); G.players.delete(pid); }
 
   // ================================================================ enemies
   function spawnEnemies() {
@@ -376,6 +421,11 @@
       case 'ending': showEnding(e.choice, e.by); break;
       case 'revive': if (e.target === Net.pid) revived(e.by); break;
       case 'dmg': if (e.target === Net.pid) receiveDamage(e.dmg, vec(e.src), e.kind); break;
+      case 'pvp':
+        if (!G.pvp || e.target !== Net.pid || !me) break;
+        receiveDamage(Math.max(0, Math.min(160, +e.dmg || 0)), vec(e.src), 'pvp');
+        if (me.downed || me.hp <= 0) { event({ t: 'msg', text: `${me.name} was struck down by ${String(e.by || 'someone').slice(0, 14)}.` }); }
+        break;
     }
   }
   G.hitPlayer = function (pid, dmg, src, kind) {
@@ -396,6 +446,7 @@
         Net.sendTo(from, { t: 'welcome', pid: from, roster: G.roster, started: G.started, flags: G.flags });
         Net.broadcast({ t: 'roster', roster: G.roster }); renderLobby();
         if (G.started) { addPlayer(r); message(`${r.name} has arrived in Veyr.`); }
+        if (G.isPublic) listPublic();
         break;
       }
       case 'leave': {
@@ -424,6 +475,7 @@
         m.pl.forEach(s => { if (s.id === Net.pid) return; const p = G.players.get(s.id); if (p) applyPlayerState(p, s); });
         m.en.forEach(s => { const e = G.enemies.get(s[0]); if (e) e.applySnap(s); });
         if (m.tod !== undefined) G.tod = m.tod;
+        if (m.pv !== undefined && !!m.pv !== !!G.pvp) { G.pvp = !!m.pv; message(G.pvp ? 'PvP is ON in this world: other players can hurt you.' : 'PvP is off.'); }
         if (m.bm !== undefined && !!m.bm !== G.bloodMoon) bloodMoon(!!m.bm);
         if (m.ab !== undefined && m.ab !== G.activeBoss) { if (m.ab && !G.activeBoss) startBossIntro(m.ab); else if (!m.ab && G.activeBoss) endBoss(G.activeBoss, false); }
         break;
@@ -433,7 +485,7 @@
   }
   function playerState(p) {
     return { t: 'st', id: p.id, x: +p.pos.x.toFixed(2), y: +p.pos.y.toFixed(2), z: +p.pos.z.toFixed(2), yaw: +p.yaw.toFixed(2), look: +p.look.toFixed(2), act: p.act,
-      at: +(p.actT || p.avatar.actT || 0).toFixed(2), ad: +(p.actDur || p.avatar.actDur || 0).toFixed(2), sp: +(p.avatar.speed).toFixed(1), hp: Math.round(p.hp), mhp: p.maxHp, dn: p.downed ? 1 : 0, ln: p.lantern ? 1 : 0, cb: p.avatar.combo || 0, w: p.wb || '', wr: p.wr || 0, dw: +(p.avatar.draw || 0).toFixed(2), ch: +(p.avatar.charge || 0).toFixed(2), pt: +(p.avatar.pitch || 0).toFixed(2), ar: p.armorCode || '', fl: p.avatar.air ? 1 : 0, sh: p.shieldCode || '' };
+      at: +(p.actT || p.avatar.actT || 0).toFixed(2), ad: +(p.actDur || p.avatar.actDur || 0).toFixed(2), sp: +(p.avatar.speed).toFixed(1), hp: Math.round(p.hp), mhp: p.maxHp, dn: p.downed ? 1 : 0, ln: p.lantern ? 1 : 0, cb: p.avatar.combo || 0, w: p.wb || '', wr: p.wr || 0, dw: +(p.avatar.draw || 0).toFixed(2), ch: +(p.avatar.charge || 0).toFixed(2), pt: +(p.avatar.pitch || 0).toFixed(2), ar: p.armorCode || '', fl: p.avatar.air ? 1 : 0, sh: p.shieldCode || '', cr: p.car ? p.car.net() : 0, lk: p.lookCode || '' };
   }
   function applyPlayerState(p, s) {
     p.netPos.set(s.x, s.y, s.z); p.netYaw = s.yaw; p.look = s.look; p.hp = s.hp; p.maxHp = s.mhp; p.downed = !!s.dn;
@@ -441,7 +493,7 @@
       p.avatar.draw = s.dw || 0; p.avatar.charge = s.ch || 0; p.avatar.pitch = s.pt || 0; if (s.ar !== undefined && s.ar !== p.armorCode) { p.armorCode = s.ar; p.avatar.setArmor(HC.Items.armorVisual(s.ar)); } }
     if (!p.local && s.w !== undefined && (p.wb !== s.w || p.wr !== s.wr)) {
       p.wb = s.w; p.wr = s.wr; const v = HC.Items.visual(s.w || null, s.wr);
-      p.avatar.setWeapon(s.w ? v.model : null, s.w ? v.style : 'sword', v.glow, v.amt);
+      p.avatar.setWeapon(s.w ? v.model : null, s.w ? v.style : 'unarmed', v.glow, v.amt);
     }
     if (p.act !== s.act) {
       p.avatar.actT = s.at;
@@ -455,6 +507,8 @@
     }
     p.act = s.act; p.avatar.act = s.act; p.avatar.actDur = s.ad; p.avatar.speed = s.sp; p.avatar.combo = s.cb || 0;
     if (p.lantern !== !!s.ln) { p.lantern = !!s.ln; p.avatar.setLantern(p.lantern); }
+    if (!p.local) remoteCar(p, s);
+    if (!p.local && s.lk && s.lk !== p.lookCode && s.lk.length < 600) { p.lookCode = s.lk; try { p.avatar.setLook(JSON.parse(s.lk)); } catch (e) { } }
     if (p.netPos.distanceTo(p.pos) > 10) p.pos.copy(p.netPos);
   }
   let netT = 0;
@@ -463,7 +517,7 @@
     netT += dt; if (netT < 1 / 15) return; netT = 0;
     if (Net.mode === 'client') { Net.send(playerState(me)); return; }
     const near = e => [...G.players.values()].some(p => p.pos.distanceTo(e.pos) < 160) || e.boss;
-    Net.broadcast({ t: 'snap', pl: [...G.players.values()].map(playerState), en: [...G.enemies.values()].filter(near).map(e => e.snap()), ab: G.activeBoss || null, tod: +G.tod.toFixed(4), bm: G.bloodMoon ? 1 : 0 });
+    Net.broadcast({ t: 'snap', pl: [...G.players.values()].map(playerState), en: [...G.enemies.values()].filter(near).map(e => e.snap()), ab: G.activeBoss || null, tod: +G.tod.toFixed(4), bm: G.bloodMoon ? 1 : 0, pv: G.pvp ? 1 : 0 });
   }
 
   // ================================================================ input
@@ -488,16 +542,23 @@
       return;
     }
     if (!$('mapOverlay').classList.contains('hidden')) { if (e.code === 'KeyM' || e.code === 'Escape') { show('mapOverlay', false); lock(); } return; }
+    if (G.customizing) {
+      if (e.code === 'KeyP' || e.code === 'Escape') closeCustom();
+      if (e.code === 'ArrowLeft') G.custYaw -= 0.25; if (e.code === 'ArrowRight') G.custYaw += 0.25;
+      return;
+    }
     if (overlayOpen()) { if (['KeyE', 'Escape', 'Enter'].includes(e.code)) closeOverlay(); e.preventDefault(); return; }
+    if (e.code === 'KeyP') { openCustom(); return; }
     keys[e.code] = true;
     if (e.code === 'Tab') { e.preventDefault(); toggleLock(); }
-    if (e.code === 'Space') { e.preventDefault(); if (!me.flying) tryRoll(); }
+    if (e.code === 'Space') { e.preventDefault(); if (!me.flying && !me.driving) tryRoll(); }
+    if (e.code === 'KeyH' && me.driving && me.car && !e.repeat) G.sound('horn', me.car.pos, 1.2);
     if (e.code === 'KeyQ' && !e.repeat) press('heavy');
     if (e.code === 'KeyJ' && !e.repeat) press('attack');    // keyboard-only attack (Chromebook touchpads)
     if (e.code === 'KeyR') tryDrink();
-    if (e.code === 'KeyE') tryInteract();
+    if (e.code === 'KeyE') { if (me.driving) exitCar(); else tryInteract(); }
     if (e.code === 'KeyF') { me.lantern = !me.lantern; me.avatar.setLantern(me.lantern); }
-    if (e.code === 'KeyV') me.fp = !me.fp;
+    if (e.code === 'KeyV') { me.fp = !me.fp; G.fpEye = null; G.applySettings(); }
     if (e.code === 'KeyG') doPing();
     if (e.code === 'KeyI') { e.preventDefault(); HC.Items.open(); }
     if (/^Digit[1-4]$/.test(e.code)) HC.Items.quickUse(+e.code.slice(5) - 1);
@@ -542,11 +603,58 @@
   $('btnAgain').onclick = () => location.reload();
   $('mapClose').onclick = () => { show('mapOverlay', false); lock(); };
   document.querySelectorAll('#choice button').forEach(b => b.onclick = () => { show('choice', false); event({ t: 'ending', choice: b.dataset.end, by: me.name }); });
-  function overlayOpen() { return ['reader', 'dialog', 'choice', 'ending', 'shrineMenu', 'settings', 'makerPanel', 'inventory', 'trade', 'shop'].some(id => !$(id).classList.contains('hidden')) || !$('pause').classList.contains('hidden'); }
+  function overlayOpen() { return ['reader', 'dialog', 'choice', 'ending', 'shrineMenu', 'settings', 'makerPanel', 'inventory', 'trade', 'shop', 'custom'].some(id => !$(id).classList.contains('hidden')) || !$('pause').classList.contains('hidden'); }
+  // ================================================================ character customization
+  const LOOK_KEY = 'hc_look_v1';
+  G.myLook = (() => { try { return Object.assign({}, HC.LOOK_DEFAULT, JSON.parse(localStorage.getItem(LOOK_KEY) || '{}')); } catch (e) { return Object.assign({}, HC.LOOK_DEFAULT); } })();
+  G.myLook.acc = G.myLook.acc || {};
+  function applyMyLook() {
+    if (!me) return;
+    me.avatar.setLook(G.myLook); me.lookCode = JSON.stringify(G.myLook);
+    if (me.avatar.lantern) me.avatar.lantern.visible = !!G.myLook.lantern;
+    try { localStorage.setItem(LOOK_KEY, me.lookCode); } catch (e) { }
+  }
+  function openCustom() {
+    if (!me || !G.started) { $('netStatus').textContent = 'Start a journey, then press P (or open the pause menu) to change your character.'; return; }
+    ['pause', 'inventory', 'shop', 'trade'].forEach(id => show(id, false));
+    show('custom'); G.customizing = true; G.custYaw = 0; unlockPointer(); renderCustom();
+  }
+  function closeCustom() { show('custom', false); G.customizing = false; lock(); }
+  function renderCustom() {
+    const L = G.myLook, X = HC.LOOKS, hex = c => '#' + c.toString(16).padStart(6, '0');
+    const sw = (k, arr) => arr.map(([n, c], i) => `<span class="sw ${L[k] === i ? 'on' : ''}" title="${n}" style="background:${k === 'outfit' && i === 0 ? hex(HC.PLAYER_COLORS[me.slot % 4] || 0x9e8f82) : hex(c)}" data-sw="${k}" data-i="${i}"></span>`).join('');
+    const tog = (k, label) => `<label class="tog"><input type="checkbox" data-tog="${k}" ${L[k] ? 'checked' : ''}> ${label}</label>`;
+    const rng = (k, label, lo, hi) => `<label class="rng">${label} <b>${Math.round((L[k] || 1) * 100)}%</b><input type="range" min="${lo}" max="${hi}" step="0.01" value="${L[k] || 1}" data-rng="${k}"></label>`;
+    const accRow = slot => `<h3>${{ head: 'Head', face: 'Face', neck: 'Neck', back: 'Back', shoulder: 'Shoulder', hip: 'Belt' }[slot]}</h3>` +
+      `<button class="acc ${!L.acc[slot] ? 'on' : ''}" data-acc="${slot}" data-id="">None</button>` + X.acc[slot].map(([id, n]) => `<button class="acc ${L.acc[slot] === id ? 'on' : ''}" data-acc="${slot}" data-id="${id}">${n}</button>`).join('');
+    $('custBody').innerHTML = `<h3>Outfit colour</h3>${sw('outfit', X.outfit)}<h3>Skin</h3>${sw('skin', X.skin)}<h3>Hair</h3>${sw('hair', X.hair)}
+      <h3>Outfit pieces</h3>${tog('hood', 'Hood up')}${tog('paul', 'Shoulder guard')}${tog('belt', 'Belts')}${tog('brace', 'Bracers')}${tog('lantern', 'Lantern')}
+      <h3>Body</h3>${rng('height', 'Height', 0.88, 1.12)}${rng('build', 'Build', 0.88, 1.15)}
+      ${Object.keys(X.acc).map(accRow).join('')}`;
+    const B = $('custBody'), redo = () => { applyMyLook(); renderCustom(); };
+    B.querySelectorAll('[data-sw]').forEach(el => el.onclick = () => { L[el.dataset.sw] = +el.dataset.i; redo(); });
+    B.querySelectorAll('[data-tog]').forEach(el => el.onchange = () => { L[el.dataset.tog] = el.checked ? 1 : 0; redo(); });
+    B.querySelectorAll('[data-rng]').forEach(el => el.oninput = () => { L[el.dataset.rng] = +el.value; applyMyLook(); el.previousElementSibling.textContent = Math.round(+el.value * 100) + '%'; });
+    B.querySelectorAll('[data-acc]').forEach(el => el.onclick = () => { if (el.dataset.id) L.acc[el.dataset.acc] = el.dataset.id; else delete L.acc[el.dataset.acc]; A.play('equip_cloth', null, 0.5); redo(); });
+  }
+  $('custDone').onclick = closeCustom;
+  $('custReset').onclick = () => { G.myLook = JSON.parse(JSON.stringify(HC.LOOK_DEFAULT)); G.myLook.acc = {}; applyMyLook(); renderCustom(); };
+  $('custRandom').onclick = () => {
+    const X = HC.LOOKS, r = n => Math.floor(Math.random() * n), L = G.myLook;
+    L.outfit = r(X.outfit.length); L.skin = r(X.skin.length); L.hair = r(X.hair.length); L.hood = r(2); L.paul = r(2); L.belt = 1; L.brace = r(2);
+    L.height = 0.92 + Math.random() * 0.16; L.build = 0.92 + Math.random() * 0.18; L.acc = {};
+    Object.keys(X.acc).forEach(s => { if (Math.random() < 0.45) L.acc[s] = X.acc[s][r(X.acc[s].length)][0]; });
+    applyMyLook(); renderCustom();
+  };
+  $('btnCustom2').onclick = openCustom; $('btnCustom').onclick = openCustom;
+  G.openCustom = openCustom; G.applyMyLook = applyMyLook;
+  // drag on the game view (left of the panel) to turn the character round
+  addEventListener('mousemove', e => { if (G.customizing && e.buttons & 1 && e.clientX < innerWidth - 420) G.custYaw += e.movementX * 0.01; });
   function closeOverlay() {
     if (!$('ending').classList.contains('hidden') || !$('choice').classList.contains('hidden')) return;
     if (!$('dialog').classList.contains('hidden') && G.dialogQueue && G.dialogQueue.length) { nextDialog(); return; }
     ['reader', 'dialog', 'pause', 'shrineMenu', 'settings', 'inventory', 'trade', 'shop'].forEach(id => show(id, false));
+    if (G.customizing) { show('custom', false); G.customizing = false; }
     lock();
   }
 
@@ -555,7 +663,7 @@
   const busy = () => ['attack', 'heavy', 'roll', 'drink', 'hurt', 'downed', 'revive', 'cine', 'throw', 'charge', 'draw', 'cast', 'loose', 'getup'].includes(me.act);
   function startAct(a, dur) { me.act = a; me.actT = 0; me.actDur = dur; me.avatar.act = a; me.avatar.actT = 0; me.avatar.actDur = dur; me.hitDone = false; }
   // ---- press / release: bows draw while held, the staff charges, melee heavies wind up; everything else fires on press
-  const canAct = () => me && !me.downed && !me.dead && !G.cine && !me.frozen;
+  const canAct = () => me && !me.downed && !me.dead && !G.cine && !me.frozen && !me.driving && !(me.fx && me.fx.disarm > 0);
   const style = () => HC.STYLES[me.avatar.style] || HC.STYLES.sword;
   const held = {};
   function noAmmo() {
@@ -647,7 +755,7 @@
   // attack / heavy / roll sounds. pos = null -> your own character (full volume), else a teammate in 3D
   function playActSound(act, pos, style, combo = 0, delay = 0) {
     const S = HC.STYLES[style] || {}, armor = !!S.armor, v = pos ? 1.2 : 1.0, rev = pos ? 0.8 : 0.35;
-    const swing = { dagger: 'swing_dagger', spear: 'swing_spear', axe: 'swing_axe', hammer: 'swing_axe', scythe: 'swing_spear', katana: 'swing', flail: 'swing_heavy', warpick: 'swing_axe', sickle: 'swing_dagger', fists: 'swing_dagger', rapier: 'swing_dagger', halberd: 'swing_spear', greataxe: 'swing_axe' }[style];
+    const swing = { dagger: 'swing_dagger', spear: 'swing_spear', axe: 'swing_axe', hammer: 'swing_axe', scythe: 'swing_spear', katana: 'swing', flail: 'swing_heavy', warpick: 'swing_axe', sickle: 'swing_dagger', fists: 'swing_dagger', car: 'swing_dagger', unarmed: 'swing_dagger', rapier: 'swing_dagger', halberd: 'swing_spear', greataxe: 'swing_axe' }[style];
     if (S.chain && act !== 'roll') A.play('equip_metal', pos, 0.45, { delay: Math.max(0, delay - 0.1), rate: 1.3 });   // the flail's chain rattles
     if (act === 'roll') A.play('dodge', pos, v, { armor, rev });
     else if (S.ranged) A.play('shot', pos, v, { delay, kind: style, heavy: act === 'heavy', rev });
@@ -727,6 +835,14 @@
       hitAny = true;
       hitEnemy(e, (a.dmg * (0.9 + Math.random() * 0.2) + (ring ? 18 : 0)) * dmgMul(), a.poise, { perk: a.perk, heavy: me.act === 'heavy' || HC.STYLES[a.style].armor });
     });
+    // PvP worlds: the same swing hits other players
+    if (G.pvp && Net.mode !== 'solo') G.players.forEach(p => {
+      if (p.local || p.downed || p.hp <= 0) return;
+      const dx = p.pos.x - me.pos.x, dz = p.pos.z - me.pos.z, d = Math.hypot(dx, dz);
+      if (d > a.range + 0.4 || Math.abs(p.pos.y - me.pos.y) > 2.5) return;
+      if (Math.abs(HC.angDiff(me.yaw, Math.atan2(dx, dz))) > a.arc / 2 && d > 1) return;
+      hitAny = true; G.pvpHit(p, a.dmg * (0.9 + Math.random() * 0.2) * dmgMul());
+    });
     if (ring) { const p = me.pos.clone().add(new V3(Math.sin(me.yaw) * 2.5, 1.2, Math.cos(me.yaw) * 2.5)); HC.FX.spawn('ember', p); A.play('fire', p, 0.8); }
     if (hitAny) { G.hitstop = 0.06; G.shakeA = Math.max(G.shakeA || 0, me.act === 'heavy' ? 0.25 : 0.12); }
   }
@@ -761,6 +877,13 @@
     if (a.proj === 'pale') HC.FX.spawn('ring', from, { color: 0x9ad8ff, r: 0.6, life: 0.3 });
     if (a.proj === 'void') HC.FX.spawn('spark', from);
   }
+  // a hit on another player (PvP): damage is applied on their own machine; players deal 60% of their enemy damage
+  G.pvpHit = function (p, dmg) {
+    if (!G.pvp || !p || p.local) return;
+    const hp = p.pos.clone().setY(p.pos.y + 1.2);
+    HC.FX.spawn('blood', hp); A.play('hit', hp, 0.9);
+    event({ t: 'pvp', target: p.id, dmg: Math.round(Math.min(160, dmg * 0.6)), src: [me.pos.x, me.pos.y, me.pos.z], by: me.name });
+  };
   G.projHit = (e, p) => hitEnemy(e, p.dmg, p.poise || 10, { fire: p.fire, perk: p.perk, ranged: true, proj: p.type, frost: p.frost });
   G.bombBurst = function (p) {
     const kind = p.kind || 'fire';
@@ -772,6 +895,14 @@
     if (me.god && kind !== 'admin') return;
     if (me.iframes > 0 && kind !== 'watcher' && kind !== 'admin') return;
     if (kind !== 'admin') dmg *= (me.defMul || 1) * (G.bloodMoon ? 1.4 : 1);   // the blood moon hits 40% harder
+    if (me.fx && kind !== 'admin') dmg *= (me.fx.curse > 0 ? 2 : 1) * (me.fx.bless > 0 ? 0.5 : 1);
+    if (me.driving) {                                                         // the car's body takes half of it; you stay seated
+      if (kind !== 'admin') dmg *= 0.5;
+      if (me.god || me.iframes > 0) return;
+      A.play('hit_armor', me.pos, 0.6); G.dmgFlash = 0.6;
+      me.hp -= dmg; if (me.hp <= 0) { me.hp = 0; exitCar(); goDown(); }
+      return;
+    }
     const toSrc = Math.atan2(src.x - me.pos.x, src.z - me.pos.z);
     const sh = me.avatar.hasShield ? HC.Items.shieldStats() : { absorb: 0.12, stab: 1.6, arc: 1.4 };
     const blocking = me.act === 'block' && Math.abs(HC.angDiff(me.yaw, toSrc)) < sh.arc && kind !== 'watcher' && kind !== 'fire' && kind !== 'admin';
@@ -793,6 +924,7 @@
     if (me.hp <= 0) { me.hp = 0; goDown(); }
   }
   function goDown() {
+    if (me.driving) exitCar();
     const others = [...G.players.values()].filter(p => !p.local && !p.downed && p.hp > 0);
     if (Net.mode === 'solo') { die(true); return; }
     if (others.length === 0) { me.downed = true; startAct('downed', 999); event({ t: 'wipe' }); return; }
@@ -840,6 +972,24 @@
       if (me.burnAcc > 0.5) { me.burnAcc = 0; if (!me.god && !me.downed) { me.hp -= me.maxHp * 0.03; HC.FX.spawn('ember', me.pos.clone().setY(me.pos.y + 1)); if (me.hp <= 0) { me.hp = 0; goDown(); } } }
     }
     if (me.confuseT > 0) me.confuseT -= dt;
+    // timed admin effects (js/access.js): me.fx = { name: seconds left }
+    const fx = me.fx || (me.fx = {});
+    for (const k in fx) {
+      fx[k] -= dt;
+      if (fx[k] > 0) continue;
+      delete fx[k];
+      if (k === 'stun') me.frozen = false;
+      if (k === 'ghost') me.avatar.setOpacity(1);
+      if (k === 'slow' || k === 'haste') me.fxSpeed = 1;
+      if (k === 'tiny' || k === 'giant') me.avatar.root.scale.setScalar(1);
+      const said = { poison: 'The poison has left you.', curse: 'The curse lifts.', bless: 'The blessing fades.', drunk: 'Your head clears.', stun: 'You can move again.', disarm: 'You can fight again.', nightvision: 'Your eyes dim.' }[k];
+      if (said) message(said);
+    }
+    if (fx.poison > 0 && !me.god && !me.downed) { me.hp -= me.maxHp * 0.02 * dt; if (Math.random() < dt * 3) HC.FX.spawn('spark', me.pos.clone().setY(me.pos.y + 1.3)); if (me.hp <= 0) { me.hp = 0; goDown(); } }
+    if (fx.bless > 0 && !me.downed) me.hp = Math.min(me.maxHp, me.hp + me.maxHp * 0.04 * dt);
+    if (fx.spin > 0) me.camYaw += dt * 7;
+    if (fx.quake > 0) G.shakeA = Math.max(G.shakeA || 0, 0.35);
+    if (fx.ghost > 0) me.avatar.setOpacity(0.3);
     if (me.blindT > 0) { me.blindT -= dt; $('blind').style.opacity = Math.min(1, me.blindT); } else $('blind').style.opacity = 0;
     if (me.infSt) me.st = me.maxSt;
   }
@@ -914,8 +1064,16 @@
     const toyPos = { toy1: gy(-50, 22), toy2: gy(-315, 95), toy3: gy(W.CITADEL.x - 30, W.CITADEL.z + 8), toy4: gy(W.CRATER.x - 40, W.CRATER.z + 30), toy5: P('catacombs', 14, 25) };
     HC.TOYS.forEach(t => {
       const pos = toyPos[t.id];
-      const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.18), new THREE.MeshBasicMaterial({ color: 0xd8c9a6, toneMapped: false }));
-      m.position.copy(pos).setY(pos.y + 0.5); scene.add(m); t.mesh = m;
+      // the toy itself (models/toy1-5.glb) lying on the ground, a little larger than life so it can be found,
+      // with a faint glint above it
+      let m;
+      if (HC.assets[t.id]) {
+        m = new THREE.Group(); const toy = W.clone(t.id); toy.scale.setScalar(1.7); toy.rotation.y = (t.id.charCodeAt(3) * 1.7) % 6.28; m.add(toy);
+        const glint = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff0c8, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+        glint.position.y = 0.55; m.add(glint);
+        m.position.copy(pos); m.position.y = (pos.x > 1500 ? pos.y : W.footMin(pos.x, pos.z, 0.15)) - 0.005;
+      } else { m = new THREE.Mesh(new THREE.OctahedronGeometry(0.18), new THREE.MeshBasicMaterial({ color: 0xd8c9a6, toneMapped: false })); m.position.copy(pos).setY(pos.y + 0.5); }
+      scene.add(m); t.mesh = m;
       addInter({ pos, r: 2.2, label: `Pick up ${t.name.toLowerCase()}`, cond: () => !me.toys.has(t.id), act: () => {
         me.toys.add(t.id); m.visible = false; A.play('pickup'); message(`${t.name}. (${me.toys.size}/5)`);
         if (me.toys.size === 5) { grantRelic('charm'); }
@@ -1244,7 +1402,8 @@
   }
   // solo journeys pause completely while any menu, note, dialogue, map or the satchel is open: no time passes,
   // nothing animates, every sound stops. (A co-op world is shared, so it keeps running.)
-  G.isPaused = () => Net.mode === 'solo' && G.started && !G.ended && (overlayOpen() || !$('mapOverlay').classList.contains('hidden'));
+  // (the Character screen doesn't pause: your character keeps breathing so you can see the changes)
+  G.isPaused = () => Net.mode === 'solo' && G.started && !G.ended && ((overlayOpen() && !G.customizing) || !$('mapOverlay').classList.contains('hidden'));
   function loop(now) {
     requestAnimationFrame(loop);
     const paused = G.isPaused();
@@ -1269,6 +1428,11 @@
     const haste = G.bloodMoon ? 1.2 : 1;   // blood moon: the dead move 20% faster
     G.players.forEach(p => {
       if (!p.local) { const prev = p.pos.clone(); p.pos.lerp(p.netPos, 1 - Math.exp(-12 * dt)); p.vel.copy(p.pos).sub(prev).divideScalar(Math.max(dt, 1e-3)); p.yaw += HC.angDiff(p.yaw, p.netYaw) * Math.min(1, dt * 12); p.avatar.actT += dt; }
+      if (!p.local && p.car && p.carNet) {
+        p.car.applyNet(p.carNet, dt);
+        if (p.act === 'drive') { p.pos.copy(p.car.driverRoot()); p.yaw = p.car.yaw; }
+      }
+      p.avatar.driveGrips = p.car && p.act === 'drive' ? p.car.handGrips() : null;
       p.zone = W.zoneAt(p.pos.x, p.pos.z); p.avatar.pos.copy(p.pos); p.avatar.yaw = p.yaw; p.avatar.update(dt);
     });
     const host = Net.isHost();
@@ -1303,7 +1467,11 @@
     envUpdate(dt); lightsUpdate();
     const f = new V3(); camera.getWorldDirection(f); A.setListener(camera.position, f); A.update(dt, me.pos);
     hud(dt); interactPrompt(); netTick(dt);
-    HC.TOYS.forEach(t => { if (t.mesh) { t.mesh.rotation.y += dt; t.mesh.position.y += Math.sin(G.t * 2) * 0.002; } });
+    HC.TOYS.forEach(t => {
+      if (!t.mesh) return;
+      if (t.mesh.isGroup) { const g = t.mesh.children[1]; if (g) { g.material.opacity = 0.25 + 0.25 * Math.sin(G.t * 2.5 + t.id.length); g.position.y = 0.5 + Math.sin(G.t * 1.5) * 0.05; } }
+      else { t.mesh.rotation.y += dt; t.mesh.position.y += Math.sin(G.t * 2) * 0.002; }
+    });
     // discover embers by walking near them
     for (const id in W.SHRINES) if (!me.found.has(id) && W.SHRINES[id].pos && W.SHRINES[id].pos.distanceTo(me.pos) < 12) { me.found.add(id); message(`Ember discovered: ${W.SHRINES[id].name}`); }
   }
@@ -1326,11 +1494,100 @@
     me.vel.copy(me.pos).sub(prev).divideScalar(Math.max(dt, 1e-3));
     me.avatar.speed = 0; me.avatar.air = true; me.look = me.camYaw;
     me.st = me.maxSt;
-    me.avatar.setHeadVisible(!me.fp);
-  }  function controlLocal(dt) {
+    me.avatar.setHeadVisible(!me.fp || !!G.customizing);
+  }
+  // ================================================================ the admin Corolla (js/car.js)
+  // Equipping it parks it beside you; [E] gets in and out. Your seat follows the car; the car is shared with the others.
+  function syncCar() {
+    if (!me || !HC.Car || !HC.assets || !HC.assets.corolla) return;
+    const want = me.avatar.style === 'car';
+    if (want && !me.car) {
+      me.car = new HC.Car(me.id);
+      const side = new V3(-Math.cos(me.yaw), 0, Math.sin(me.yaw));
+      let p = me.pos.clone().addScaledVector(side, 3.2);
+      if (me.car.blockedAt(p, me.yaw)) p = me.pos.clone().addScaledVector(new V3(Math.sin(me.yaw), 0, Math.cos(me.yaw)), 4.5);
+      me.car.place(p, me.yaw);
+      me.carInter = addInter({ pos: me.car.pos, r: 3.4, label: 'Get in the 2014 Toyota Corolla E180 EU', cond: () => me.car && !me.driving, act: enterCar });
+      A.play('cardoor', me.car.pos, 0.6); message('Your Corolla pulls up. [E] to get in.');
+    } else if (!want && me.car) {
+      if (me.driving) exitCar();
+      me.car.dispose(); me.car = null; A.engine(null);
+      if (me.carInter) { const i = G.inter.indexOf(me.carInter); if (i >= 0) G.inter.splice(i, 1); me.carInter = null; }
+    }
+  }
+  function enterCar() {
+    if (!me.car || me.driving || me.downed) return;
+    me.driving = true; me.car.driven = true; startAct('drive', 9999); me.lock = null;
+    me.camYaw = me.car.yaw; A.play('cardoor', me.car.pos, 0.8);
+    message('W/S gas & brake · A/D steer · Space handbrake · H horn · V inside view · [E] get out');
+  }
+  function exitCar() {
+    if (!me.driving) return;
+    const car = me.car; me.driving = false; car.driven = false;
+    const exitSpeed = car.vF; car.vel.set(0, 0); car.vF = 0; car.steer = 0; car.draw(0);   // parked, handbrake on
+    let p = car.doorWorld(); p.y = W.heightAt(p.x, p.z);
+    if (W.blocked(p.x, p.z, 0.4)) { const q = car.toWorld(new V3(-1.55, 0, -0.1)); if (!W.blocked(q.x, q.z, 0.4)) p = q; }
+    me.pos.copy(p); me.pos.y = W.heightAt(p.x, p.z); me.yaw = car.yaw;
+    startAct('idle', 0); A.play('cardoor', car.pos, 0.8); A.engine(null);
+    if (Math.abs(exitSpeed) > 3) { message('You leap out of the moving car!'); receiveDamage(Math.min(60, Math.abs(exitSpeed) * 2), car.pos, 'admin'); }
+  }
+  G.exitCar = exitCar;
+  function driveControl(dt) {
+    const car = me.car, locked = overlayOpen() || document.activeElement === $('chatIn');
+    const i = locked ? new V3() : moveInput();
+    const inp = { throttle: Math.max(-1, Math.min(1, i.z)), steer: Math.max(-1, Math.min(1, i.x)), brake: !locked && !!keys.Space };
+    car.braking = (inp.throttle < -0.1 && car.vF > 0.5) || (inp.throttle > 0.1 && car.vF < -0.5) || inp.brake;
+    const before = car.pos.clone();
+    const crash = car.update(dt, inp);
+    if (crash > 3) { A.play('crash', car.pos, 1, { force: crash }); G.shakeA = Math.max(G.shakeA || 0, Math.min(0.9, crash * 0.05)); HC.FX.spawn('spark', car.pos.clone().addScaledVector(car.fwd(), 2).setY(car.pos.y + 0.6)); if (crash > 14) receiveDamage(Math.round((crash - 14) * 3), car.pos, 'admin'); }
+    // running things over: anything in the car's path takes a hit that grows with speed
+    const spd = Math.abs(car.vF);
+    if (spd > 3) {
+      const f = car.fwd();
+      G.enemies.forEach(e => {
+        if (!e.alive || !e.root.visible) return;
+        const d = e.pos.clone().sub(car.pos); d.y = 0;
+        const along = d.dot(f), side = Math.abs(d.x * f.z - d.z * f.x);
+        if (Math.abs(along) > 2.4 + e.cfg.r || side > 1.05 + e.cfg.r || Math.abs(e.pos.y - car.pos.y) > 2.5) return;
+        const cd = car.hitCd.get(e.id) || 0; if (G.t < cd) return;
+        car.hitCd.set(e.id, G.t + 0.8);
+        hitEnemy(e, spd * 7 * dmgMul(), spd * 9, { heavy: true });
+        A.play('crash', e.pos, 0.8, { force: spd * 0.6 }); G.hitstop = 0.05; G.shakeA = Math.max(G.shakeA || 0, 0.25);
+        if (e.boss) { car.vel.multiplyScalar(0.3); }           // bosses are a wall
+        else car.vel.multiplyScalar(e.cfg.hp > 300 ? 0.6 : 0.9);
+      });
+      if (G.pvp) G.players.forEach(p => {
+        if (p.local || p.downed || p.act === 'drive') return;
+        const d = p.pos.clone().sub(car.pos); d.y = 0;
+        if (Math.abs(d.dot(f)) > 2.6 || Math.abs(d.x * f.z - d.z * f.x) > 1.4) return;
+        const cd = car.hitCd.get(p.id) || 0; if (G.t < cd) return;
+        car.hitCd.set(p.id, G.t + 0.8); G.pvpHit(p, spd * 7); A.play('crash', p.pos, 0.8, { force: spd * 0.6 });
+      });
+    }
+    // your seat rides with the car
+    me.pos.copy(car.driverRoot());
+    me.yaw = car.yaw; me.vel.copy(car.pos).sub(before).divideScalar(Math.max(dt, 1e-3));
+    me.avatar.speed = 0; me.avatar.air = false; me.look = me.camYaw;
+    me.zone = W.zoneAt(me.pos.x, me.pos.z);
+    A.setAmbience(AMB[me.zone] || 'village');
+    // engine: revs climb through four gears
+    const v = Math.abs(car.vF), gear = v < 8 ? 0 : v < 16 ? 1 : v < 26 ? 2 : 3, lo = [0, 8, 16, 26][gear], hi = [8, 16, 26, 45][gear];
+    A.engine({ on: true, rpm: 0.15 + 0.85 * (v - lo) / (hi - lo), load: Math.abs(inp.throttle), slip: car.slip, vol: 1 });
+    me.st = Math.min(me.maxSt, me.st + dt * 20);
+    me.avatar.setHeadVisible(!me.fp || !!G.customizing);
+  }
+  // other players' cars: drawn from their state packets
+  function remoteCar(p, s) {
+    if (s.cr && HC.Car && HC.assets && HC.assets.corolla) {
+      if (!p.car) { p.car = new HC.Car(p.id); p.car.place(new V3(s.cr[0], s.cr[1], s.cr[2]), s.cr[3]); }
+      p.carNet = s.cr;
+    } else if (p.car) { p.car.dispose(); p.car = null; p.carNet = null; }
+  }
+  function controlLocal(dt) {
     me.actT += dt; me.avatar.actT = me.actT; me.iframes = Math.max(0, me.iframes - dt);
     me.zone = W.zoneAt(me.pos.x, me.pos.z);
     if (G.cine) { G.cine.t += dt; if (G.cine.t > G.cine.dur) G.cine = null; me.avatar.speed = 0; return; }
+    if (me.driving && me.car) { driveControl(dt); return; }
     if (me.flying) { flyControl(dt); return; }
     const c = C(); let speed = 0, dir = moveDir();
     const inputLocked = overlayOpen() || document.activeElement === $('chatIn') || !$('mapOverlay').classList.contains('hidden');
@@ -1399,6 +1656,7 @@
       const sprint = keys.ShiftLeft && dir.lengthSq() > 0 && me.st > (G.touch ? 25 : 0) && !blocking;
       speed = c.speed * (blocking ? 0.45 : sprint ? 1.65 : 1) * (me.speedMul || 1) * (me.spdMul || 1);
       if (HC.TWO_HAND[me.avatar.style]) speed *= sprint ? 0.94 : 0.88;   // a big two-handed weapon slows your walk a little
+      speed *= me.fxSpeed || 1;                                            // slowed / hasted by a command
       if (sprint) { me.st -= dt * 15; me.stDelay = 0.5; }
       if (blocking) { if (me.act !== 'block') startAct('block', 0); } else if (me.act === 'block') startAct('idle', 0);
       if (me.lock && (!me.lock.alive || me.lock.pos.distanceTo(me.pos) > 34)) me.lock = null;
@@ -1419,6 +1677,9 @@
     } else speed = 0;
     if (me.act === 'block' && me.lock) faceTarget();
     if (['draw', 'cast', 'charge', 'loose'].includes(me.act) && !me.lock) me.yaw = me.camYaw;   // keep facing the aim while strafing
+    // first person: the body always faces where you look (strafing like any first-person game)
+    if (me.fp && !me.lock && me.act !== 'roll' && !me.downed) me.yaw = me.camYaw;
+    me.avatar.fp = !!me.fp;
     me.avatar.speed = speed;
     me.avatar.draw = me.draw || 0; me.avatar.charge = me.charge || 0;
     me.avatar.pitch = Math.max(-0.9, Math.min(0.9, -me.camPitch + 0.12));
@@ -1433,7 +1694,7 @@
     me.look = me.camYaw;
     if (!zoneShown[me.zone] && me.zone !== 'wilds') { zoneShown[me.zone] = true; areaBanner(W.areaName(me.zone).toUpperCase()); }
     A.setAmbience(AMB[me.zone] || 'village');
-    me.avatar.setHeadVisible(!me.fp);
+    me.avatar.setHeadVisible(!me.fp || !!G.customizing);
   }
 
   const camPos = new V3(), camLook = new V3();
@@ -1452,10 +1713,56 @@
       me.camPitch = HC.damp(me.camPitch, me.lock.boss ? 0.02 : 0.18, 4, dt);
     }
     { if (keys.ArrowLeft) me.camYaw += dt * 2; if (keys.ArrowRight) me.camYaw -= dt * 2; if (keys.ArrowUp) me.camPitch -= dt; if (keys.ArrowDown) me.camPitch += dt; }
+    if (G.customizing) {
+      // Character screen: look at yourself from the front (a little to the left, clear of the panel)
+      const a = me.yaw + G.custYaw, h = (G.myLook.height || 1);
+      const look = me.pos.clone().add(new V3(0, 1.05 * h, 0)), side = new V3(Math.cos(a), 0, -Math.sin(a));
+      const pos = me.pos.clone().add(new V3(Math.sin(a) * 2.9, 1.35 * h, Math.cos(a) * 2.9)).addScaledVector(side, -0.55);
+      camera.position.lerp(pos, 1 - Math.exp(-8 * dt)); camera.lookAt(look.addScaledVector(side, -0.55));
+      me.avatar.setHeadVisible(true); show('lockon', false);
+      return;
+    }
+    if (me.driving && me.car) {
+      // the view swings back in behind the car as it moves (look around with the mouse)
+      const car = me.car, spd = Math.abs(car.vF);
+      if (spd > 1.5) me.camYaw += HC.angDiff(me.camYaw, car.vF < -1 ? car.yaw + Math.PI : car.yaw) * Math.min(1, dt * (1.2 + spd * 0.08));
+      const cpd = Math.cos(me.camPitch), fd = new V3(Math.sin(me.camYaw) * cpd, -Math.sin(me.camPitch), Math.cos(me.camYaw) * cpd);
+      if (me.fp) {
+        const eye = car.eyeWorld();
+        camera.position.copy(eye); camera.near = 0.05; camera.updateProjectionMatrix(); camera.lookAt(eye.clone().add(fd));
+      } else {
+        if (camera.near !== 0.1) { camera.near = 0.1; camera.updateProjectionMatrix(); }
+        const target = car.pos.clone().add(new V3(0, 1.35, 0));
+        const dist = 6.8 + Math.min(3, spd * 0.06);
+        const pos = target.clone().addScaledVector(fd, -dist); pos.y += 0.9;
+        const fr = W.rayFree(target, pos); if (fr < 1) pos.lerpVectors(target, pos, Math.max(0.2, fr));
+        const gy2 = W.heightAt(pos.x, pos.z) + 0.5; if (pos.y < gy2) pos.y = gy2;
+        camera.position.lerp(pos, 1 - Math.exp(-14 * dt)); camera.lookAt(target);
+      }
+      if (G.shakeA > 0) { camera.position.x += (Math.random() - 0.5) * G.shakeA * 0.4; camera.position.y += (Math.random() - 0.5) * G.shakeA * 0.4; }
+      show('lockon', false);
+      return;
+    }
+    if (camera.near !== 0.1 && !me.fp) { camera.near = 0.1; camera.updateProjectionMatrix(); }
+    // spectating another player (admin command): orbit behind them instead
+    const spec = G.spectate && G.players.get(G.spectate);
+    if (spec && !spec.local) {
+      const tgt = spec.pos.clone().add(new V3(0, 1.6, 0)), cpS = Math.cos(me.camPitch);
+      const pos = tgt.clone().addScaledVector(new V3(Math.sin(me.camYaw) * cpS, -Math.sin(me.camPitch), Math.cos(me.camYaw) * cpS), -5);
+      camera.position.lerp(pos, 1 - Math.exp(-10 * dt)); camera.lookAt(tgt); show('lockon', false); return;
+    } else if (G.spectate) G.spectate = null;
     const cp = Math.cos(me.camPitch), f = new V3(Math.sin(me.camYaw) * cp, -Math.sin(me.camPitch), Math.cos(me.camYaw) * cp), right = new V3(-Math.cos(me.camYaw), 0, Math.sin(me.camYaw));
     if (me.fp && !me.downed) {
-      const pos = me.pos.clone().add(new V3(0, 1.62, 0)).addScaledVector(new V3(Math.sin(me.camYaw), 0, Math.cos(me.camYaw)), 0.18);
-      camera.position.copy(pos); camera.lookAt(pos.clone().add(f));
+      // first person: the camera rides at the eyes (so it bobs with every step, roll and swing), a little ahead of the
+      // face so the hood never fills the view; vertical motion is smoothed so walking doesn't shake the picture
+      const head = me.avatar.rig.b.Head, fwd = new V3(Math.sin(me.camYaw), 0, Math.cos(me.camYaw));
+      const eye = head ? head.getWorldPosition(new V3()).add(new V3(0, 0.08, 0)).addScaledVector(fwd, 0.2) : me.pos.clone().add(new V3(0, 1.62, 0)).addScaledVector(fwd, 0.18);
+      G.fpEye = G.fpEye || eye.clone();
+      G.fpEye.x = eye.x; G.fpEye.z = eye.z; G.fpEye.y = HC.damp(G.fpEye.y, eye.y, 18, dt);
+      if (G.fpEye.distanceTo(eye) > 1) G.fpEye.copy(eye);
+      camera.position.copy(G.fpEye);
+      if (camera.near !== 0.04) { camera.near = 0.04; camera.updateProjectionMatrix(); }
+      camera.lookAt(G.fpEye.clone().add(f));
     } else {
       const target = me.pos.clone().add(new V3(0, 1.55, 0)).addScaledVector(right, 0.45);
       G.camZoom = HC.damp(G.camZoom || 1, me.act === 'draw' ? 0.62 + 0.1 * (1 - me.draw) : 1, 6, dt);   // over the shoulder while drawing
@@ -1466,6 +1773,7 @@
       camPos.copy(pos); camera.position.lerp(camPos, 1 - Math.exp(-20 * dt)); camLook.copy(target); camera.lookAt(camLook);
     }
     if (G.shakeA > 0) { camera.position.x += (Math.random() - 0.5) * G.shakeA * 0.4; camera.position.y += (Math.random() - 0.5) * G.shakeA * 0.4; }
+    if (me.fx && me.fx.drunk > 0) { camera.rotateZ(Math.sin(G.t * 1.3) * 0.14); camera.rotateX(Math.sin(G.t * 0.9) * 0.05); me.camYaw += Math.sin(G.t * 0.7) * dt * 0.4; }
     if (me.lock && me.lock.alive) {
       const p = me.lock.pos.clone().setY(me.lock.pos.y + Math.min(me.lock.cfg.h * 0.75, 3)).project(camera);
       show('lockon'); $('lockon').style.left = ((p.x + 1) / 2 * innerWidth) + 'px'; $('lockon').style.top = ((1 - p.y) / 2 * innerHeight) + 'px';
@@ -1478,7 +1786,7 @@
   const daylight = tod => sstep(0.2, 0.3, tod) * (1 - sstep(0.7, 0.8, tod));
   G.isNight = () => daylight(G.tod) < 0.05;
   function clockTick(dt) {
-    if (!Net.isHost()) return;
+    if (!Net.isHost() || G.clockFrozen) return;
     G.tod = (G.tod + dt / (60 * (SV().dayLen || 16))) % 1;
     const night = G.isNight();
     // each nightfall: a 2% chance that the moon rises red
@@ -1529,7 +1837,7 @@
     sky.horizon.value.lerp(_c1.setHex(me.zone === 'forest' && dv < 0.5 ? 0x14171a : NIGHT_SKY[0]).lerp(_c2.setHex(DAY_SKY[0]), dv).lerp(_c2.setHex(0xc47a4c), sunset * 0.7).lerp(_c3.setHex(BLOOD_SKY[0]), bl), k);
     sky.zenith.value.lerp(_c1.setHex(NIGHT_SKY[1]).lerp(_c2.setHex(DAY_SKY[1]), dv).lerp(_c3.setHex(BLOOD_SKY[1]), bl), k);
     sky.day.value += (dv - sky.day.value) * k; sky.blood.value += (bl - sky.blood.value) * k;
-    const ex = 1.15 * (SV().brightness || 1);
+    const ex = 1.15 * (SV().brightness || 1) * ((me.fx && me.fx.nightvision > 0) ? 2.4 : 1);
     if (finalPass) finalPass.uniforms.exposure.value = ex; else renderer.toneMappingExposure = ex;
   }
   function lightsUpdate() {
@@ -1554,6 +1862,7 @@
       G.inter.forEach(o => { if (o.cond && !o.cond()) return; const d = o.pos.distanceTo(me.pos); if (d < o.r && d < bd) { bd = d; best = o; } });
       G.players.forEach(p => { if (p.local || !p.downed) return; const d = p.pos.distanceTo(me.pos); if (d < 2.4 && d < bd) { bd = d; best = { revive: p, label: `Hold to lift ${p.name}` }; } });
     }
+    if (me.driving) best = { label: 'Get out', act: exitCar };
     G.nearInter = best;
     if (best && !overlayOpen()) { $('prompt').innerHTML = `<b>[E]</b> ${esc(typeof best.label === 'function' ? best.label() : best.label)}`; show('prompt'); } else show('prompt', false);
   }

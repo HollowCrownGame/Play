@@ -214,6 +214,15 @@
       sample('equip_cloth', d, Math.max(ctx.currentTime, t - 0.12), 0.95, 0.45);
       PROC.whoosh(d, Math.max(ctx.currentTime, t + A.LEAD - 0.42 * 0.35), 0.42, 1100, 160, 0.42);
     }
+    if (name === 'horn') {            // the Corolla's two-tone horn
+      [[392, 0], [466, 0]].forEach(([f]) => { tone(d, t, 0.55, 'square', f, 0, 0.09, 0.01); tone(d, t, 0.55, 'sawtooth', f * 1.003, 0, 0.05, 0.01); });
+    }
+    if (name === 'crash') {           // metal, glass and a body thump
+      const k = Math.min(1, (opts.force || 8) / 20);
+      sample('hit_heavy', d, t, 0.7, 0.8 + k); sample('clang', d, t + 0.02, 0.8, 0.5 + k * 0.6); PROC.thud(d, t, 0.5 + k * 0.4);
+      if (k > 0.5) sample('glass', d, t + 0.05, 0.9, 0.6);
+    }
+    if (name === 'cardoor') { sample('door', d, t, 1.6, 0.7); PROC.thud(d, t + 0.02, 0.35); }
     if (name === 'windup') {          // drawing back for a charged heavy: cloth, gear, a slow rising rush of air
       sample('equip_cloth', d, t, 0.85, 0.7);
       if (opts.armor) sample('step_armor', d, t + 0.05, 0.85, 0.5);
@@ -246,6 +255,26 @@
     if (name === 'step' && opts.wet) PROC.splash(d, t);
   };
 
+  // ---- the car engine: a continuous note whose pitch follows the revs (gear changes drop it), plus tyre squeal
+  let eng = null;
+  A.engine = function (s) {
+    if (!ready) return;
+    if (!s || !s.on) { if (eng) { const t = ctx.currentTime; eng.g.gain.setTargetAtTime(0, t, 0.15); eng.sq.gain.setTargetAtTime(0, t, 0.1); const e = eng; eng = null; setTimeout(() => { try { e.o1.stop(); e.o2.stop(); e.n.stop(); } catch (x) { } }, 900); } return; }
+    if (!eng) {
+      const o1 = ctx.createOscillator(), o2 = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      o1.type = 'sawtooth'; o2.type = 'square'; f.type = 'lowpass'; f.Q.value = 2; g.gain.value = 0;
+      o1.connect(f); o2.connect(f); f.connect(g); g.connect(sfxBus);
+      const n = ctx.createBufferSource(); n.buffer = noiseBuf; n.loop = true; const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 1900; nf.Q.value = 3;
+      const sq = ctx.createGain(); sq.gain.value = 0; n.connect(nf); nf.connect(sq); sq.connect(sfxBus);
+      o1.start(); o2.start(); n.start();
+      eng = { o1, o2, f, g, n, sq };
+    }
+    const t = ctx.currentTime, rpm = Math.max(0.12, Math.min(1, s.rpm)), hz = 28 + rpm * 120;
+    eng.o1.frequency.setTargetAtTime(hz, t, 0.05); eng.o2.frequency.setTargetAtTime(hz * 0.5, t, 0.05);
+    eng.f.frequency.setTargetAtTime(220 + rpm * 1300 + s.load * 500, t, 0.05);
+    eng.g.gain.setTargetAtTime((0.07 + s.load * 0.08 + rpm * 0.05) * (s.vol || 1), t, 0.06);
+    eng.sq.gain.setTargetAtTime(Math.min(0.18, Math.max(0, s.slip - 2) * 0.03) * (s.vol || 1), t, 0.05);
+  };
   // ---- ambience & music beds
   const BED_SET = {
     village: { amb_wind: 0.32, amb_dread: 0.15, mus_explore: 0.5 },

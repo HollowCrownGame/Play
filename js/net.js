@@ -41,7 +41,7 @@
       conn.on('open', () => {
         const prev = N.conns.get(conn.peer);
         if (prev) { prev.dead = true; try { prev.conn.close(); } catch (e) { } }
-        if (!prev && N.conns.size >= 3) { conn.send({ t: 'full' }); setTimeout(() => conn.close(), 300); return; }
+        if (!prev && N.conns.size >= (N.maxPlayers || 4) - 1) { conn.send({ t: 'full' }); setTimeout(() => conn.close(), 300); return; }
         const used = new Set([...N.conns.values()].filter(v => v !== prev).map(v => v.pid));
         let slot = 1; while (used.has('p' + slot)) slot++;
         const pid = prev ? prev.pid : 'p' + slot;
@@ -72,7 +72,7 @@
       conn.on('open', () => { opened = true; cb.ready(); });
       conn.on('data', m => {
         if (m.t === 'welcome') N.pid = m.pid;
-        if (m.t === 'full') cb.error('That journey already has four travelers.');
+        if (m.t === 'full') cb.error('That journey is full.');
         N.handler && N.handler(m, 'p0');
       });
       conn.on('close', () => N.handler && N.handler({ t: 'hostLost' }, 'p0'));

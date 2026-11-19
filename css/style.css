@@ -322,3 +322,17 @@ body.touch #quickbar .qw span:not(.ammo) { display: none; }
 .ic { display: inline-block; width: 1.6em; height: 1.6em; vertical-align: middle; background-image: var(--icons); background-size: calc(var(--icols) * 100%) calc(var(--irows) * 100%); background-repeat: no-repeat; }
 .islot .ico .ic, .qslot .ic, #quickbar .qs .ic { width: 2.2em; height: 2.2em; }
 .ware .ico .ic { width: 34px; height: 34px; }
+
+/* ---- character customization: side panel, the game stays visible on the left */
+#custom { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100%); z-index: 30; display: flex; align-items: stretch; }
+#custom.hidden { display: none; }
+#custom .panel.cust { max-width: none; width: 100%; margin: 0; border-radius: 0; text-align: left; overflow: auto; background: rgba(14, 12, 10, 0.92); }
+.cust h3 { margin: 14px 0 6px; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: #c9a35a; }
+.cust .sw { display: inline-block; width: 30px; height: 30px; margin: 0 6px 6px 0; border-radius: 50%; border: 2px solid #3a3226; cursor: pointer; vertical-align: middle; }
+.cust .sw.on { border-color: #f0d890; box-shadow: 0 0 0 2px #f0d89055; }
+.cust .tog { display: inline-flex; align-items: center; gap: 6px; margin: 0 14px 6px 0; font-size: 14px; }
+.cust .acc { display: inline-block; margin: 0 6px 6px 0; padding: 6px 10px; font-size: 13px; }
+.cust .acc.on { border-color: #f0d890; color: #f0d890; }
+.cust label.rng { display: block; font-size: 14px; margin: 4px 0; }
+.cust label.rng input { width: 100%; }
+@media (max-width: 600px) { #custom { width: 100%; top: 40%; } }

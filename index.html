@@ -10,7 +10,7 @@
 <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=20261119e">
+<link rel="stylesheet" href="css/style.css?v=20261120e">
 </head>
 <body>
 <div id="game"></div>
@@ -48,15 +48,16 @@
       <p id="whoBadge" class="small"></p>
       <input id="inName" type="hidden">
       <button id="btnSolo" class="big play">Play</button>
+      <button id="btnPublic" class="big public" title="Drop into a world with other players (or open one that others can join)">Public World</button>
       <div class="row">
         <button id="btnHost">Host Co-op</button>
         <input id="inCode" maxlength="6" placeholder="CODE">
         <button id="btnJoin">Join</button>
       </div>
-      <div class="row"><button id="btnBag">Satchel</button><button id="btnTrade">Trade</button><button id="btnSettings">Settings</button><button id="btnMaker" class="maker hidden">Maker Panel</button></div>
+      <div class="row"><button id="btnBag">Satchel</button><button id="btnTrade">Trade</button><button id="btnSettings">Settings</button><button id="btnCustom">Character</button><button id="btnMaker" class="maker hidden">Maker Panel</button></div>
       <p id="netStatus" class="small"></p>
     </div>
-    <p class="hint">Headphones recommended. Co-op connects friends over the internet (up to 4 players). Your satchel and trades are saved to your account.</p>
+    <p class="hint">Headphones recommended. Co-op connects friends over the internet (up to 4 players); Public World puts you with whoever else is playing (up to 6). Your satchel and trades are saved to your account.</p>
   </div>
 </div>
 
@@ -146,10 +147,18 @@
     <button id="btnResume" class="big">Resume</button>
     <div class="row"><button id="btnBag2">Satchel [I]</button><button id="btnTrade2">Trading Post</button></div>
     <button id="btnSettings2">Settings</button>
+    <button id="btnCustom2">Character [P]</button>
     <button id="btnMaker2" class="maker hidden">Maker Panel [F8]</button>
     <button id="btnQuit">Abandon journey</button>
   </div>
 </div>
+<!-- character customization: a side panel; the camera swings round to face your character -->
+<div id="custom" class="hidden"><div class="panel cust">
+  <h2>Character</h2>
+  <div id="custBody"></div>
+  <div class="row"><button id="custRandom">Random</button><button id="custReset">Reset</button><button id="custDone" class="big">Done [P]</button></div>
+  <p class="small">Drag on the left of the screen (or use ← →) to turn your character.</p>
+</div></div>
 <div id="inventory" class="overlay hidden" style="z-index:31"><div class="panel wide inv">
   <h2>Satchel</h2>
   <div class="invcols"><div><div id="invEquip"></div><div id="invGrid"></div></div><div id="invInfo"></div></div>
@@ -188,24 +197,26 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="js/firebase-config.js?v=20261119e"></script>
+<script src="js/firebase-config.js?v=20261120e"></script>
 
-<script src="js/models.js?v=20261119e"></script>
-<script src="js/models2.js?v=20261119e"></script>
-<script src="js/textures.js?v=20261119e"></script>
-<script src="js/sounds.js?v=20261119e"></script>
-<script src="js/story.js?v=20261119e"></script>
-<script src="js/settings.js?v=20261119e"></script>
-<script src="js/audio.js?v=20261119e"></script>
-<script src="js/world.js?v=20261119e"></script>
-<script src="js/entities.js?v=20261119e"></script>
-<script src="js/icons.js?v=20261119e"></script>
-<script src="js/items.js?v=20261119e"></script>
-<script src="js/net-config.js?v=20261119e"></script>
-<script src="js/net.js?v=20261119e"></script>
-<script src="js/game.js?v=20261119e"></script>
-<script src="js/online.js?v=20261119e"></script>
-<script src="js/access.js?v=20261119e"></script>
-<script src="js/touch.js?v=20261119e"></script>
+<script src="js/models.js?v=20261120e"></script>
+<script src="js/models2.js?v=20261120e"></script>
+<script src="js/models3.js?v=20261120e"></script>
+<script src="js/textures.js?v=20261120e"></script>
+<script src="js/sounds.js?v=20261120e"></script>
+<script src="js/story.js?v=20261120e"></script>
+<script src="js/settings.js?v=20261120e"></script>
+<script src="js/audio.js?v=20261120e"></script>
+<script src="js/world.js?v=20261120e"></script>
+<script src="js/entities.js?v=20261120e"></script>
+<script src="js/car.js?v=20261120e"></script>
+<script src="js/icons.js?v=20261120e"></script>
+<script src="js/items.js?v=20261120e"></script>
+<script src="js/net-config.js?v=20261120e"></script>
+<script src="js/net.js?v=20261120e"></script>
+<script src="js/game.js?v=20261120e"></script>
+<script src="js/online.js?v=20261120e"></script>
+<script src="js/access.js?v=20261120e"></script>
+<script src="js/touch.js?v=20261120e"></script>
 </body>
 </html>

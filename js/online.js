@@ -181,6 +181,25 @@
   O.setCodeUses = (code, maxUses) => B.update('codes/' + code, { maxUses: Math.max(0, maxUses | 0) });
   O.deleteCode = code => B.del('codes/' + code);
 
+  // ------------------------------------------------------------------ public worlds (anyone can drop in)
+  // lobbies/{code}: { code, host (uid), hostName, players, max, pvp, at }. The host refreshes it every 15 s;
+  // listings older than 45 s are treated as gone (a closed tab cannot delete its own listing).
+  O.listLobby = (code, o) => B.set('lobbies/' + code, Object.assign({ code, host: O.uid, at: Date.now() }, o));
+  O.unlistLobby = code => B.del('lobbies/' + code).catch(() => { });
+  O.publicLobbies = async () => (await B.list('lobbies')).filter(l => Date.now() - (l.at || 0) < 45000 && (l.players || 0) < (l.max || 4));
+
+  // ------------------------------------------------------------------ who is playing where (for commands across servers)
+  // presence/{uid}: { uid, name, where ('solo' | lobby code), pid, at } - refreshed every 20 s while in a world
+  O.setPresence = o => B.set('presence/' + O.uid, Object.assign({ uid: O.uid, at: Date.now() }, o));
+  O.clearPresence = () => B.del('presence/' + O.uid).catch(() => { });
+  O.onlinePlayers = async () => (await B.list('presence')).filter(p => Date.now() - (p.at || 0) < 60000);
+
+  // ------------------------------------------------------------------ commands sent to a player in another world
+  // rcmds/{id}: { to, from, byName, op, a, at }. The receiver re-checks the sender's rights before applying it.
+  O.sendCmd = (to, op, a, byName) => B.add('rcmds', { to, from: O.uid, byName, op, a: a || {}, at: Date.now() });
+  O.watchCmds = cb => B.watchQuery('rcmds', 'to', O.uid, cb);
+  O.delCmd = id => B.del('rcmds/' + id).catch(() => { });
+
   // ------------------------------------------------------------------ satchels & the Trading Post
   O.loadInv = () => B.get('inv/' + O.uid);
   O.saveInv = v => B.set('inv/' + O.uid, v);

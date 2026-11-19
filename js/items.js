@@ -16,7 +16,10 @@
     { name: 'Legendary', color: '#ff9a1f', mult: 1.62, glow: 0.8 },
     { name: 'Mythic', color: '#ff3b3b', mult: 1.9, glow: 1.0 },
     { name: 'Unholy', color: '#e0105a', mult: 2.3, glow: 1.3, unholy: true },
+    // never drops, never sold, never traded: only an admin can give it, and only admins can hold it
+    { name: 'Admin', color: '#18e8ff', mult: 3, glow: 1.5, admin: true },
   ];
+  const ADMIN_R = 7;
   const PERKS = {
     fire: { name: 'Burning', desc: 'Hits burn for extra fire damage.' },
     leech: { name: 'Leeching', desc: 'Heals you for 6% of the damage dealt.' },
@@ -55,6 +58,8 @@ katana: { name: 'Moonless Katana', kind: 'weapon', style: 'katana', model: 'kata
     tome: { name: 'Grimoire of the Hollow', kind: 'weapon', style: 'tome', model: 'tome', icon: '', desc: 'Hold to gather a void orb that tears through every foe in its path. Epic or better only.' },
     sickle: { name: 'Harvest Sickle', kind: 'weapon', style: 'sickle', model: 'sickle', icon: '', desc: 'A hooked reaping blade. Fast slashes that bleed foes.' },
     crownbreaker: { name: 'Crownbreaker', kind: 'weapon', style: 'greatsword', model: 'crownbreaker', icon: '', desc: 'The blade that was meant for the King. Exists only as Unholy.', dmgMul: 1.2 },
+    corolla: { name: '2014 Toyota Corolla E180 EU', kind: 'weapon', style: 'car', model: 'corolla', icon: '', r: 7, adminOnly: true, dmgMul: 1 / 3,   // punches hit like plain fists, not x3 Admin
+      desc: 'ADMIN ONLY. Equip it and it pulls up beside you. [F] get in / out. W/S gas, brake & reverse, A/D steer, Space handbrake, H horn, V inside view. Runs over whatever is in the way.' },
     draught: { name: 'Minor Healing Draught', kind: 'use', r: 0, icon: '❤', tint: 0xb01818, heal: 0.35, desc: 'Restores 35% health.' },
     potion: { name: 'Healing Potion', kind: 'use', r: 1, icon: '❤', tint: 0xe02020, heal: 0.65, desc: 'Restores 65% health.' },
     elixir: { name: 'Supreme Elixir', kind: 'use', r: 3, icon: '❤', tint: 0xff4060, heal: 1, regen: 20, desc: 'Full health, then regenerates for 20 s.' },
@@ -124,7 +129,7 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
     if (base.r !== undefined) r = base.r;
     const [lo, hi] = I.range(b); r = Math.max(lo, Math.min(hi, r | 0));
     const it = { k: key(), b, r, n: Math.max(1, n | 0) };
-    const perk = p || base.perk || (base.kind === 'weapon' && r >= 6 ? 'unholy' : base.kind === 'weapon' && r >= 3 ? Object.keys(PERKS)[Math.floor(Math.random() * 4)] : null);
+    const perk = p || base.perk || (base.adminOnly ? null : base.kind === 'weapon' && r >= 6 ? 'unholy' : base.kind === 'weapon' && r >= 3 ? Object.keys(PERKS)[Math.floor(Math.random() * 4)] : null);
     if (perk) it.p = perk;
     return it;
   };
@@ -141,6 +146,8 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
     greataxe: [2, 6], halberd: [1, 6], staff: [1, 6], katana: [2, 6], flail: [0, 6], warpick: [0, 5], club: [0, 2], maul: [2, 6], cestus: [0, 6], javelin: [0, 5],
     knives: [0, 6], wand: [1, 6], tome: [3, 6], sickle: [0, 4], crownbreaker: [6, 6], tower: [2, 6], targe: [1, 6], coin: [0, 3], skull: [2, 6], eye: [3, 6] };
   const SET_RANGE = { leather: [0, 3], hunter: [1, 4], chain: [1, 5], bone: [2, 6], plate: [3, 6] };
+  I.adminOnly = b => !!(B(b) && B(b).adminOnly);
+  I.ADMIN_R = ADMIN_R;
   I.range = b => { const base = B(b); if (!base) return [0, 6]; if (base.r !== undefined) return [base.r, base.r]; return RANGES[b] || (base.set && SET_RANGE[base.set]) || [base.minR || 0, 6]; };
   I.name = it => (B(it.b) || { name: it.b }).name;
   I.color = it => RAR[it.r || 0].color;
@@ -163,7 +170,7 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
   // weapon stats for the local player: style numbers scaled by rarity and perk
   I.weapon = () => I.find(I.equip.w) || null;
   I.weaponStats = function (kind) {
-    const it = I.weapon(), base = it ? B(it.b) : B('longsword'), S = HC.STYLES[base.style] || HC.STYLES.sword;
+    const it = I.weapon(), base = it ? B(it.b) : { style: 'unarmed' }, S = HC.STYLES[base.style] || HC.STYLES.sword;   // bare hands = fists
     const s = Object.assign({}, S[kind === 'heavy' ? 'heavy' : 'light']);
     const r = it ? RAR[it.r || 0].mult : 1, p = it && it.p;
     s.dmg *= r * (p === 'brutal' ? 1.1 : p === 'unholy' ? 1.15 : 1) * (base.dmgMul || 1);
@@ -188,6 +195,7 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
   I.count = b => I.inv.filter(x => x.b === b).reduce((s, x) => s + x.n, 0);
   I.add = function (it, quiet) {
     if (!it || !B(it.b)) return false;
+    if (I.adminOnly(it.b)) { if (!amAdmin()) { if (!quiet) note('Only admins can hold that.'); return false; } it.r = ADMIN_R; }
     if (stackable(it)) {
       let left = it.n;
       I.inv.filter(x => x.b === it.b && x.r === it.r && x.n < STACK[B(it.b).kind]).forEach(x => { const m = Math.min(left, STACK[B(x.b).kind] - x.n); x.n += m; left -= m; });
@@ -220,8 +228,10 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
     else if (base.kind === 'armor') A.play(base.set === 'leather' ? 'equip_cloth' : 'equip_metal', null, 0.75);
     else A.play('equip_cloth', null, 0.5);
   }
+  const amAdmin = () => !!(HC.Access && HC.Access.isAdmin && HC.Access.isAdmin());
   I.equipItem = function (k) {
     const it = I.find(k); if (!it) return;
+    if (I.adminOnly(it.b) && !amAdmin()) { note('Only admins can use that.'); return; }
     const kind = B(it.b).kind;
     if (kind !== 'use' && kind !== 'ammo' && !I.isEquipped(k)) equipSound(B(it.b));
     if (kind === 'weapon') I.equip.w = k;
@@ -313,7 +323,7 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
     for (let i = 0; i < w.length; i++) { t -= w[i]; if (t <= 0) return i; }
     return 0;
   }
-  const WEAPONS = Object.keys(BASES).filter(b => BASES[b].kind === 'weapon');
+  const WEAPONS = Object.keys(BASES).filter(b => BASES[b].kind === 'weapon' && !BASES[b].adminOnly);
   const TRINKETS = Object.keys(BASES).filter(b => BASES[b].kind === 'trinket');
   const ARMORS = Object.keys(BASES).filter(b => BASES[b].kind === 'armor');
   const SHIELDS = Object.keys(BASES).filter(b => BASES[b].kind === 'shield');
@@ -386,7 +396,7 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
   };
 
   // ================================================================ Odo's stall in the village: buy and sell for ashes
-  const RAR_PRICE = [1, 1.8, 3.2, 6, 11, 20, 40];
+  const RAR_PRICE = [1, 1.8, 3.2, 6, 11, 20, 40, 0];
   const SET_PRICE = { leather: 0.8, hunter: 1.1, chain: 1.6, bone: 2.0, plate: 2.6 };
   const SLOT_PRICE = { head: 160, chest: 260, arms: 110, legs: 160 };
   const USE_PRICE = { frostbomb: 200, holywater: 320, bread: 40, wine: 120, draught: 60, potion: 180, elixir: 700, tonic: 150, might: 320, ironskin: 320, embershard: 400, firebomb: 140 };
@@ -410,7 +420,7 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
     const rnd = (() => { let s = 1013904223 + day * 7919; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; })();
     stock = [['draught', 0, 1], ['potion', 0, 1], ['tonic', 0, 1], ['bread', 0, 1], ['wine', 0, 1], ['firebomb', 0, 1], ['frostbomb', 0, 1], ['arrow', 0, 20], ['firearrow', 0, 10], ['embershard', 0, 1],
       ['longsword', 0, 1], ['longbow', 0, 1], ['buckler', 0, 1], ['leather_chest', 0, 1], ['leather_head', 0, 1]];
-    const gear = Object.keys(BASES).filter(k => ['weapon', 'armor', 'shield'].includes(BASES[k].kind) && I.range(k)[0] <= 2);
+    const gear = Object.keys(BASES).filter(k => ['weapon', 'armor', 'shield'].includes(BASES[k].kind) && I.range(k)[0] <= 2 && !BASES[k].adminOnly);
     for (let i = 0; i < 10; i++) {
       const b = gear[Math.floor(rnd() * gear.length)], x = rnd();
       stock.push([b, x < 0.5 ? 0 : x < 0.8 ? 1 : x < 0.95 ? 2 : 3, 1]);
@@ -440,7 +450,7 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
         renderShopMenu();
       });
     } else {
-      const list = I.inv.filter(it => !I.isEquipped(it.k));
+      const list = I.inv.filter(it => !I.isEquipped(it.k) && !I.adminOnly(it.b));
       $('shopBody').innerHTML = list.length ? '<div class="shopgrid">' + list.map(it => ware(B(it.b), it.r, it.n, Math.max(1, Math.round(I.value(it.b, it.r, it.n) * 0.35)), '', `data-sell="${it.k}"`)).join('') + '</div>'
         : '<p class="small">Nothing to sell (equipped things stay on you).</p>';
       $('shopBody').querySelectorAll('[data-sell]').forEach(el => el.onclick = () => {
@@ -494,7 +504,7 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
         ${['weapon', 'trinket', 'armor', 'shield'].includes(B(it.b).kind) ? (I.isEquipped(it.k) ? '<button data-do="unequip">Unequip</button>' : '<button data-do="equip">Equip</button>') : ''}
         ${B(it.b).kind === 'use' && inGame ? '<button data-do="use">Use</button>' : ''}
         ${B(it.b).kind === 'use' ? [0, 1, 2, 3].map(i => `<button data-q="${i}" class="small">Slot ${i + 1}</button>`).join('') : ''}
-        ${inGame ? '<button data-do="drop">Drop on the ground</button>' : ''}<button data-do="destroy">Destroy</button></div>`
+        ${inGame && !I.adminOnly(it.b) ? '<button data-do="drop">Drop on the ground</button>' : ''}<button data-do="destroy">Destroy</button></div>`
       : `<p class="small">${I.inv.length}/${MAX_SLOTS} slots. Click an item to see it. Weapons and trinkets: Equip. Potions: put them in a quick slot (keys 1-4).</p>`;
     document.querySelectorAll('#inventory [data-sel]').forEach(el => el.onclick = () => { sel = el.dataset.sel; renderInv(); });
     document.querySelectorAll('#invInfo [data-q]').forEach(b => b.onclick = () => { I.quick = I.quick.map(q => q === sel ? null : q); I.quick[+b.dataset.q] = sel; changed(); });
@@ -551,7 +561,7 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
     document.querySelector('#trade [data-tt="in"]').textContent = `Incoming${inN ? ` (${inN})` : ''}`;
     if (ttab === 'new') {
       body.innerHTML = `<div class="row"><input id="trWho" placeholder="Player name" maxlength="14" value="${esc(partner ? partner.name : '')}"><button id="trFind">Find</button></div>
-        ${partner ? `<div class="tcols"><div><h3>You give</h3>${pickList(I.inv, give, 'me')}</div><div><h3>You want from ${esc(partner.name)}</h3>${pickList(partner.items, want, 'them')}</div></div>
+        ${partner ? `<div class="tcols"><div><h3>You give</h3>${pickList(I.inv.filter(x => !I.adminOnly(x.b)), give, 'me')}</div><div><h3>You want from ${esc(partner.name)}</h3>${pickList(partner.items.filter(x => !I.adminOnly(x.b)), want, 'them')}</div></div>
         <div class="row"><input id="trNote" placeholder="Message (optional)" maxlength="80"><button id="trSend" class="big">Send offer</button></div>` : '<p class="small">Type the name of the player you want to trade with. They don\'t need to be online: they will see your offer next time they play.</p>'}`;
       $('trFind').onclick = findPartner; $('trWho').onkeydown = e => { if (e.key === 'Enter') findPartner(); };
       body.querySelectorAll('[data-pk]').forEach(el => el.onclick = ev => {
