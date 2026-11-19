@@ -214,6 +214,17 @@
       sample('equip_cloth', d, Math.max(ctx.currentTime, t - 0.12), 0.95, 0.45);
       PROC.whoosh(d, Math.max(ctx.currentTime, t + A.LEAD - 0.42 * 0.35), 0.42, 1100, 160, 0.42);
     }
+    // ---- the Lab Rat
+    if (name === 'squeak') {          // two or three quick falling chirps
+      const n = 2 + Math.floor(Math.random() * 2), f = 2600 + Math.random() * 900;
+      for (let i = 0; i < n; i++) tone(d, t + i * 0.09, 0.07, 'sine', f * (1 - i * 0.06), f * 0.7, 0.16, 0.004);
+    }
+    if (name === 'bite') {            // a hiss in, then the snap of teeth
+      noise(d, t, 0.08, 'highpass', 3000, 0, 0.8, 0.12, 0.01);
+      sample('hit', d, t + 0.05, 2.2, opts.heavy ? 0.7 : 0.45, 0.012);
+      tone(d, t + 0.05, 0.04, 'square', 900, 300, 0.12, 0.002);
+    }
+    if (name === 'patter') noise(d, t, 0.03, 'bandpass', 2400, 1500, 2, 0.12, 0.002);   // tiny claws on the ground
     if (name === 'horn') {            // the Corolla's two-tone horn
       [[392, 0], [466, 0]].forEach(([f]) => { tone(d, t, 0.55, 'square', f, 0, 0.09, 0.01); tone(d, t, 0.55, 'sawtooth', f * 1.003, 0, 0.05, 0.01); });
     }

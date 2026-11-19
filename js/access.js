@@ -70,6 +70,7 @@
     quake: { ...P, cat: 'Effects', label: 'Shake screen', desc: 'Their screen shakes', params: [num('s', 'sec', 3, 1, 30)] },
     tiny: { ...P, cat: 'Effects', label: 'Tiny', desc: 'Shrinks them for a while', self: true, params: [num('s', 'sec', 20, 1, 600)] },
     giant: { ...P, cat: 'Effects', label: 'Giant', desc: 'Makes them huge for a while', self: true, params: [num('s', 'sec', 20, 1, 600)] },
+    labrat: { ...P, cat: 'Effects', label: 'Lab Rat', desc: 'Turn them into a rat: no weapons, attacks are bites. Run it again (or Cleanse) to turn them back. 0 sec = until undone', self: true, params: [num('s', 'sec', 0, 0, 3600)] },
     jumpscare: { ...P, cat: 'Effects', label: 'Jumpscare', desc: 'A shriek, a flash and a jolt', params: [] },
     sound: { ...P, cat: 'Effects', label: 'Play sound', desc: 'Play a sound to them', params: [sel('snd', 'sound', () => ['bell', 'roar', 'laugh', 'screech', 'whisper', 'moan', 'boom', 'jingle_win', 'jingle_lose', 'horn', 'door', 'gate', 'growl'].map(s => [s, s]), 'laugh')] },
     // ---- items & progress
@@ -348,7 +349,7 @@
       case 'levelup': if (mine && me) { const n = Math.min(300, (me.level || 1) + lim(A.n, 1, 100, 5)), pts = n - 1; me.level = n; me.vig = Math.ceil(pts / 3); me.end = Math.floor((pts + 1) / 3); me.str = Math.floor(pts / 3); a.recalc(); me.hp = me.maxHp; a.message(`${e.by} raised you to level ${n}.`); } break;
       case 'giverelics': if (mine && me) { Object.keys(HC.RELICS || {}).forEach(k => { if (!me.relics.has(k)) a.grantRelic(k); }); } break;
       case 'strip': if (mine) { const I = HC.Items; Object.keys(I.equip).forEach(s => { if (I.equip[s]) I.unequip(I.equip[s]); }); a.message(`${e.by} took off your gear.`); } break;
-      case 'cleanse': if (mine && me) { me.fx = {}; me.burnT = 0; me.blindT = 0; me.confuseT = 0; me.frozen = false; me.fxSpeed = 1; me.avatar.setOpacity(1); me.avatar.root.scale.setScalar(1); a.message('You feel clean.'); } break;
+      case 'cleanse': if (mine && me) { if (me.rat) G().setRat(false); me.fx = {}; me.burnT = 0; me.blindT = 0; me.confuseT = 0; me.frozen = false; me.fxSpeed = 1; me.avatar.setOpacity(1); me.avatar.root.scale.setScalar(1); a.message('You feel clean.'); } break;
       case 'invuln': if (mine && me) { me.iframes = lim(A.s, 1, 600, 15); a.message(`Nothing can hurt you for ${Math.round(me.iframes)} s.`); } break;
       case 'poison': case 'curse': case 'bless': case 'drunk': case 'spin': case 'stun': case 'slow': case 'haste': case 'ghost': case 'disarm': case 'nightvision': case 'quake': case 'tiny': case 'giant':
         if (mine && me) {
@@ -362,6 +363,13 @@
           if (say) a.message(say);
         }
         if (e.op === 'tiny' || e.op === 'giant') tp().forEach(p => { if (!p.local) p.avatar.root.scale.setScalar(e.op === 'tiny' ? 0.45 : 2.2); setTimeout(() => p.avatar && p.avatar.root.scale.setScalar(1), lim(A.s, 1, 1200, 10) * 1000); });
+        break;
+      case 'labrat':
+        if (mine && me) {
+          const on = !me.rat, s = lim(A.s, 0, 3600, 0);
+          G().setRat(on, e.by);
+          clearTimeout(AC.ratT); if (on && s > 0) AC.ratT = setTimeout(() => G().setRat(false), s * 1000);
+        }
         break;
       case 'jumpscare': if (mine && me) { HC.Audio.play('screech', null, 1.4); HC.Audio.play('roar', null, 0.9); G().dmgFlash = 1.6; G().shakeA = 1; me.blindT = 0.6; } break;
       case 'sound': if (mine) HC.Audio.play(String(A.snd || 'laugh'), null, 1); break;

@@ -423,6 +423,10 @@
   HC.STYLES.car = Object.assign({}, HC.STYLES.fists, { noHold: true });
   // no weapon at all: exactly the same bare-fisted fighting as above
   HC.STYLES.unarmed = Object.assign({}, HC.STYLES.fists, { noHold: true });
+  // the Lab Rat (admin command): no weapons, only bites. The human rig is hidden; the rat is animated in code.
+  HC.STYLES.rat = { light: { dmg: 9, poise: 6, range: 1.35, arc: 1.5, dur: 0.34, hit: 0.11, st: 5 }, heavy: { dmg: 22, poise: 16, range: 1.7, arc: 1.2, dur: 0.62, hit: 0.3, st: 12 },
+    clips: ['Punch_Jab'], heavyClip: 'Punch_Jab', windup: 0.2, idle: 'Idle_Loop', noHold: true, bite: true };
+  const RAT_SCALE = 5;   // the model is a real 15 cm rat: this makes a rat the size of a small dog
   // ---- character customization (colours, parts, build) and cosmetic accessories (models/acc_*.glb)
   HC.LOOKS = {
     outfit: [['Ranger', 0x9e8f82], ['Crimson', 0xa85048], ['Midnight', 0x4e5f80], ['Ash', 0x9c9c9c], ['Bone', 0xdacfb6], ['Forest', 0x66885a], ['Soot', 0x4a4440], ['Royal', 0x7a5a9e], ['Gilded', 0xc4a25e]],
@@ -558,6 +562,52 @@
       h.quaternion.slerp(pq.invert().multiply(Qd), L.w);
       L.fingers.forEach(([b, q]) => b.quaternion.slerp(q, L.w));
       h.updateMatrixWorld(true);
+    }
+    // Lab Rat: swap the human for the rat model (models/rat.glb: body + head + tail pieces)
+    setRat(on) {
+      on = !!on && !!(HC.assets && HC.assets.rat);
+      if (!!this.ratObj === on) return;
+      if (on) {
+        const r = W.clone('rat'); r.scale.setScalar(RAT_SCALE);
+        r.traverse(o => { if (o.isMesh) { o.castShadow = true; o.material = o.material.clone(); } });
+        this.ratParts = { body: r.getObjectByName('body') || r, head: r.getObjectByName('head'), tail: r.getObjectByName('tail') };
+        if (this.ratParts.head) this.ratParts.head0 = this.ratParts.head.position.clone();
+        this.ratObj = r; this.root.add(r); this.ratT = 0; this.biteT = 0;
+      } else { this.root.remove(this.ratObj); this.ratObj = null; this.ratParts = null; }
+      this.rig.model.visible = !on;
+      if (this.shield) this.updateShieldVis();
+    }
+    // the rat's movement is procedural: a bounding gallop, a lunge for each bite, sniffing at rest, a swishing tail
+    animateRat(dt, a) {
+      const P = this.ratParts, R = this.ratObj; if (!P || !R) return;
+      const sp = Math.min(1.5, (this.speed || 0) / 4.5), run = sp > 0.05;
+      this.ratT += dt * (run ? 9 + sp * 9 : 1.2);
+      const t = this.ratT;
+      const bound = run ? Math.abs(Math.sin(t)) : 0;
+      R.position.y = bound * 0.07 * Math.min(1, sp + 0.3);
+      R.rotation.x = run ? Math.sin(t * 2) * 0.12 * Math.min(1, sp + 0.3) : 0;
+      R.scale.set(RAT_SCALE * (1 - bound * 0.04), RAT_SCALE * (1 + bound * 0.06), RAT_SCALE * (1 + bound * 0.08));
+      if (P.tail) { P.tail.rotation.y = Math.sin(t * (run ? 0.5 : 1.7)) * (run ? 0.25 : 0.45); P.tail.rotation.x = run ? -0.15 + Math.sin(t) * 0.1 : Math.sin(t * 0.8) * 0.08; }
+      if (P.head) {
+        let pitch = 0, fwd = 0, yaw = 0;
+        if ((a === 'attack' || a === 'heavy') && this.atk) {
+          // lunge: rear back, snap forward on the hit frame, recover
+          const hit = Math.max(0.05, this.atk.hit || 0.15), u = this.actT;
+          // (the head only tilts a little so the neck seam never opens; the whole body does the lunging)
+          if (u < hit) { const k = u / hit; pitch = -0.18 * k; fwd = -0.012 * k; }
+          else { const k = Math.min(1, (u - hit) / 0.2); pitch = 0.22 * (1 - k) - 0.18 * (1 - Math.min(1, (u - hit) / 0.05)); fwd = 0.03 * (1 - k); }
+          R.position.z = fwd * RAT_SCALE * 4;
+          R.rotation.x = pitch * 0.5;
+          fwd = 0;
+        } else {
+          R.position.z = 0;
+          if (!run) { pitch = Math.sin(t * 9) * 0.04 + Math.sin(t * 1.3) * 0.12; yaw = Math.sin(t * 0.7) * 0.35; }   // sniffing about
+        }
+        P.head.rotation.set(pitch, yaw, 0);
+        P.head.position.copy(P.head0); P.head.position.z += fwd;
+      }
+      // fallen: roll onto its side
+      R.rotation.z = a === 'downed' ? 1.4 : 0;
     }
     // customization: look = HC.LOOK_DEFAULT-shaped object (see the Character screen in game.js)
     setLook(look) {
@@ -710,7 +760,7 @@
     }
     // bows, crossbows and staffs need the left hand: the shield is slung away while one is held
     // (two-handed weapons too: greatswords, greataxes, hammers, halberds and scythes)
-    updateShieldVis() { const S = HC.STYLES[this.style] || {}; if (this.shield) this.shield.visible = !S.twoHand && !HC.TWO_HAND[this.style] && !['bow', 'crossbow', 'staff', 'greatsword', 'greataxe', 'hammer', 'halberd', 'scythe'].includes(this.style); }
+    updateShieldVis() { const S = HC.STYLES[this.style] || {}; if (this.shield) this.shield.visible = !this.ratObj &&!S.twoHand && !HC.TWO_HAND[this.style] && !['bow', 'crossbow', 'staff', 'greatsword', 'greataxe', 'hammer', 'halberd', 'scythe'].includes(this.style); }
     get hasShield() { return !!(this.shield && this.shield.visible); }
     applyStance(st, f) {
       if (!st || !this.weapon) return;
@@ -861,6 +911,7 @@
         if (this.string && this.drawW <= 0.01) { this.setString(null); if (this.nockArrow) this.nockArrow.visible = false; }
       }
       this.leftHandOnHaft(dt, a);
+      if (this.ratObj) this.animateRat(dt, a);
       // behind the wheel: both hands on the rim (10 and 2), following it as it turns
       if (a === 'drive' && this.driveGrips) {
         r.model.updateMatrixWorld(true);

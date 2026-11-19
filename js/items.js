@@ -170,7 +170,8 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
   // weapon stats for the local player: style numbers scaled by rarity and perk
   I.weapon = () => I.find(I.equip.w) || null;
   I.weaponStats = function (kind) {
-    const it = I.weapon(), base = it ? B(it.b) : { style: 'unarmed' }, S = HC.STYLES[base.style] || HC.STYLES.sword;   // bare hands = fists
+    const rat = !!(HC.Game && HC.Game.api && HC.Game.api.me() && HC.Game.api.me().rat);   // a Lab Rat only bites
+    const it = rat ? null : I.weapon(), base = rat ? { style: 'rat' } : it ? B(it.b) : { style: 'unarmed' }, S = HC.STYLES[base.style] || HC.STYLES.sword;   // bare hands = fists
     const s = Object.assign({}, S[kind === 'heavy' ? 'heavy' : 'light']);
     const r = it ? RAR[it.r || 0].mult : 1, p = it && it.p;
     s.dmg *= r * (p === 'brutal' ? 1.1 : p === 'unholy' ? 1.15 : 1) * (base.dmgMul || 1);

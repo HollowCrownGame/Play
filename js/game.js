@@ -246,9 +246,9 @@
   // the equipped weapon (from the satchel, js/items.js) -> the model in your hand + trinket stats
   function applyLoadout() {
     if (!me) return;
-    const w = HC.Items.weapon(), v = HC.Items.visual(w ? w.b : null, w ? w.r : 0);
+    const w = me.rat ? null : HC.Items.weapon(), v = HC.Items.visual(w ? w.b : null, w ? w.r : 0);   // a rat holds nothing
     me.wb = w ? w.b : ''; me.wr = w ? w.r : 0;
-    me.avatar.setWeapon(w ? v.model : null, w ? v.style : 'unarmed', v.glow, v.amt);
+    me.avatar.setWeapon(w ? v.model : null, me.rat ? 'rat' : w ? v.style : 'unarmed', v.glow, v.amt);
     me.armorCode = HC.Items.armorCode(); me.avatar.setArmor(HC.Items.armorVisual(me.armorCode));
     me.shieldCode = HC.Items.shieldCode(); me.avatar.setShield(me.shieldCode || null);
     syncCar();
@@ -485,7 +485,7 @@
   }
   function playerState(p) {
     return { t: 'st', id: p.id, x: +p.pos.x.toFixed(2), y: +p.pos.y.toFixed(2), z: +p.pos.z.toFixed(2), yaw: +p.yaw.toFixed(2), look: +p.look.toFixed(2), act: p.act,
-      at: +(p.actT || p.avatar.actT || 0).toFixed(2), ad: +(p.actDur || p.avatar.actDur || 0).toFixed(2), sp: +(p.avatar.speed).toFixed(1), hp: Math.round(p.hp), mhp: p.maxHp, dn: p.downed ? 1 : 0, ln: p.lantern ? 1 : 0, cb: p.avatar.combo || 0, w: p.wb || '', wr: p.wr || 0, dw: +(p.avatar.draw || 0).toFixed(2), ch: +(p.avatar.charge || 0).toFixed(2), pt: +(p.avatar.pitch || 0).toFixed(2), ar: p.armorCode || '', fl: p.avatar.air ? 1 : 0, sh: p.shieldCode || '', cr: p.car ? p.car.net() : 0, lk: p.lookCode || '' };
+      at: +(p.actT || p.avatar.actT || 0).toFixed(2), ad: +(p.actDur || p.avatar.actDur || 0).toFixed(2), sp: +(p.avatar.speed).toFixed(1), hp: Math.round(p.hp), mhp: p.maxHp, dn: p.downed ? 1 : 0, ln: p.lantern ? 1 : 0, cb: p.avatar.combo || 0, w: p.wb || '', wr: p.wr || 0, dw: +(p.avatar.draw || 0).toFixed(2), ch: +(p.avatar.charge || 0).toFixed(2), pt: +(p.avatar.pitch || 0).toFixed(2), ar: p.armorCode || '', fl: p.avatar.air ? 1 : 0, sh: p.shieldCode || '', cr: p.car ? p.car.net() : 0, lk: p.lookCode || '', rt: p.rat ? 1 : 0 };
   }
   function applyPlayerState(p, s) {
     p.netPos.set(s.x, s.y, s.z); p.netYaw = s.yaw; p.look = s.look; p.hp = s.hp; p.maxHp = s.mhp; p.downed = !!s.dn;
@@ -493,7 +493,7 @@
       p.avatar.draw = s.dw || 0; p.avatar.charge = s.ch || 0; p.avatar.pitch = s.pt || 0; if (s.ar !== undefined && s.ar !== p.armorCode) { p.armorCode = s.ar; p.avatar.setArmor(HC.Items.armorVisual(s.ar)); } }
     if (!p.local && s.w !== undefined && (p.wb !== s.w || p.wr !== s.wr)) {
       p.wb = s.w; p.wr = s.wr; const v = HC.Items.visual(s.w || null, s.wr);
-      p.avatar.setWeapon(s.w ? v.model : null, s.w ? v.style : 'unarmed', v.glow, v.amt);
+      p.avatar.setWeapon(s.w && !s.rt ? v.model : null, s.rt ? 'rat' : s.w ? v.style : 'unarmed', v.glow, v.amt);
     }
     if (p.act !== s.act) {
       p.avatar.actT = s.at;
@@ -508,6 +508,7 @@
     p.act = s.act; p.avatar.act = s.act; p.avatar.actDur = s.ad; p.avatar.speed = s.sp; p.avatar.combo = s.cb || 0;
     if (p.lantern !== !!s.ln) { p.lantern = !!s.ln; p.avatar.setLantern(p.lantern); }
     if (!p.local) remoteCar(p, s);
+    if (!p.local && !!s.rt !== !!p.rat) { p.rat = !!s.rt; p.avatar.setRat(p.rat); if (p.rat) p.avatar.setWeapon(null, 'rat'); }
     if (!p.local && s.lk && s.lk !== p.lookCode && s.lk.length < 600) { p.lookCode = s.lk; try { p.avatar.setLook(JSON.parse(s.lk)); } catch (e) { } }
     if (p.netPos.distanceTo(p.pos) > 10) p.pos.copy(p.netPos);
   }
@@ -755,6 +756,7 @@
   // attack / heavy / roll sounds. pos = null -> your own character (full volume), else a teammate in 3D
   function playActSound(act, pos, style, combo = 0, delay = 0) {
     const S = HC.STYLES[style] || {}, armor = !!S.armor, v = pos ? 1.2 : 1.0, rev = pos ? 0.8 : 0.35;
+    if (S.bite && act !== 'roll') { A.play('bite', pos, v, { delay: Math.max(0, delay - 0.04), heavy: act === 'heavy', rev }); if (Math.random() < 0.35) A.play('squeak', pos, 0.8, { delay }); return; }
     const swing = { dagger: 'swing_dagger', spear: 'swing_spear', axe: 'swing_axe', hammer: 'swing_axe', scythe: 'swing_spear', katana: 'swing', flail: 'swing_heavy', warpick: 'swing_axe', sickle: 'swing_dagger', fists: 'swing_dagger', car: 'swing_dagger', unarmed: 'swing_dagger', rapier: 'swing_dagger', halberd: 'swing_spear', greataxe: 'swing_axe' }[style];
     if (S.chain && act !== 'roll') A.play('equip_metal', pos, 0.45, { delay: Math.max(0, delay - 0.1), rate: 1.3 });   // the flail's chain rattles
     if (act === 'roll') A.play('dodge', pos, v, { armor, rev });
@@ -777,6 +779,7 @@
   function drinkItem(fn) { if (!me || busy() || me.downed || me.dead || me.frozen) return false; startAct('drink', 1.15); me.healed = false; me.drinkFn = fn; return true; }
   function throwBomb(dmg, kind = 'fire') {
     if (!me || busy() || me.downed || me.dead || me.frozen) return false;
+    if (me.rat) { message('Rats can\'t throw things.'); return false; }
     me.yaw = me.lock ? Math.atan2(me.lock.pos.x - me.pos.x, me.lock.pos.z - me.pos.z) : me.camYaw;
     startAct('throw', 0.9); me.bombDmg = dmg; me.bombKind = kind; me.thrown = false; return true;
   }
@@ -1517,6 +1520,7 @@
   }
   function enterCar() {
     if (!me.car || me.driving || me.downed) return;
+    if (me.rat) { message('Rats can\'t drive.'); A.play('squeak', null, 0.8); return; }
     me.driving = true; me.car.driven = true; startAct('drive', 9999); me.lock = null;
     me.camYaw = me.car.yaw; A.play('cardoor', me.car.pos, 0.8);
     message('W/S gas & brake · A/D steer · Space handbrake · H horn · V inside view · [E] get out');
@@ -1532,6 +1536,19 @@
     if (Math.abs(exitSpeed) > 3) { message('You leap out of the moving car!'); receiveDamage(Math.min(60, Math.abs(exitSpeed) * 2), car.pos, 'admin'); }
   }
   G.exitCar = exitCar;
+  // ================================================================ the Lab Rat (admin command)
+  function setRat(on, by) {
+    if (!me || !!me.rat === !!on) return;
+    if (on && !(HC.assets && HC.assets.rat)) return;
+    if (on && me.driving) exitCar();
+    me.rat = !!on; me.lock = null;
+    if (on && (me.act === 'block' || me.act === 'draw' || me.act === 'cast' || me.act === 'charge')) startAct('idle', 0);
+    me.avatar.setRat(me.rat); applyLoadout();
+    HC.FX.spawn('spark', me.pos.clone().setY(me.pos.y + 0.6)); A.play('squeak', null, 1); A.play('spell', null, 0.4, { rate: 1.6 });
+    message(on ? `${by || 'Someone'} turned you into a rat! No weapons - bite with attack [click] and heavy [Q].` : 'You are yourself again.');
+    G.ratSqueakT = 6;
+  }
+  G.setRat = setRat;
   function driveControl(dt) {
     const car = me.car, locked = overlayOpen() || document.activeElement === $('chatIn');
     const i = locked ? new V3() : moveInput();
@@ -1651,12 +1668,17 @@
       if ((me.act === 'pickup' || me.act === 'interact') && dir.lengthSq() > 0) startAct('idle', 0);
       if (me.actT >= me.actDur) startAct('idle', 0);
     } else if (me.act !== 'cine') {
-      const blocking =(mouse.r || keys.KeyK) && !inputLocked;   // right mouse / touch Block button / K key
+      const blocking = (mouse.r || keys.KeyK) && !inputLocked && !me.rat;   // right mouse / touch Block button / K key (rats can't)
       // touch players sprint by pushing the stick: stop at 25 stamina so there is always enough left to attack or roll
       const sprint = keys.ShiftLeft && dir.lengthSq() > 0 && me.st > (G.touch ? 25 : 0) && !blocking;
       speed = c.speed * (blocking ? 0.45 : sprint ? 1.65 : 1) * (me.speedMul || 1) * (me.spdMul || 1);
       if (HC.TWO_HAND[me.avatar.style]) speed *= sprint ? 0.94 : 0.88;   // a big two-handed weapon slows your walk a little
       speed *= me.fxSpeed || 1;                                            // slowed / hasted by a command
+      if (me.rat) {                                                        // rats scurry, and squeak now and then
+        speed *= 1.2;
+        G.ratSqueakT = (G.ratSqueakT || 8) - dt;
+        if (G.ratSqueakT <= 0) { G.ratSqueakT = 6 + Math.random() * 10; G.sound('squeak', me.pos, 0.7); }
+      }
       if (sprint) { me.st -= dt * 15; me.stDelay = 0.5; }
       if (blocking) { if (me.act !== 'block') startAct('block', 0); } else if (me.act === 'block') startAct('idle', 0);
       if (me.lock && (!me.lock.alive || me.lock.pos.distanceTo(me.pos) > 34)) me.lock = null;
@@ -1672,7 +1694,7 @@
       if (plant === true || (plant === null && me.stepAcc > 1.1)) {
         me.stepAcc = 0;
         const surface = W.isUnder(me.zone) || me.zone === 'citadel' ? 'stone' : me.zone === 'forest' ? 'grass' : 'dirt';
-        A.play('step', me.pos, 0.55, { wet: W.heightAt(me.pos.x, me.pos.z) < W.waterAt(me.pos.x, me.pos.z), rev: 0.3, surface, armor: !!(HC.STYLES[me.avatar.style] || {}).armor });
+        if (me.rat) A.play('patter', me.pos, 0.5, { rev: 0.2 }); else A.play('step', me.pos, 0.55, { wet: W.heightAt(me.pos.x, me.pos.z) < W.waterAt(me.pos.x, me.pos.z), rev: 0.3, surface, armor: !!(HC.STYLES[me.avatar.style] || {}).armor });
       }
     } else speed = 0;
     if (me.act === 'block' && me.lock) faceTarget();
@@ -1756,7 +1778,8 @@
       // first person: the camera rides at the eyes (so it bobs with every step, roll and swing), a little ahead of the
       // face so the hood never fills the view; vertical motion is smoothed so walking doesn't shake the picture
       const head = me.avatar.rig.b.Head, fwd = new V3(Math.sin(me.camYaw), 0, Math.cos(me.camYaw));
-      const eye = head ? head.getWorldPosition(new V3()).add(new V3(0, 0.08, 0)).addScaledVector(fwd, 0.2) : me.pos.clone().add(new V3(0, 1.62, 0)).addScaledVector(fwd, 0.18);
+      const ratHead = me.avatar.ratParts && me.avatar.ratParts.head;
+      const eye = ratHead ? ratHead.getWorldPosition(new V3()).add(new V3(0, 0.08, 0)).addScaledVector(fwd, 0.1) : head ?head.getWorldPosition(new V3()).add(new V3(0, 0.08, 0)).addScaledVector(fwd, 0.2) : me.pos.clone().add(new V3(0, 1.62, 0)).addScaledVector(fwd, 0.18);
       G.fpEye = G.fpEye || eye.clone();
       G.fpEye.x = eye.x; G.fpEye.z = eye.z; G.fpEye.y = HC.damp(G.fpEye.y, eye.y, 18, dt);
       if (G.fpEye.distanceTo(eye) > 1) G.fpEye.copy(eye);
@@ -1764,8 +1787,8 @@
       if (camera.near !== 0.04) { camera.near = 0.04; camera.updateProjectionMatrix(); }
       camera.lookAt(G.fpEye.clone().add(f));
     } else {
-      const target = me.pos.clone().add(new V3(0, 1.55, 0)).addScaledVector(right, 0.45);
-      G.camZoom = HC.damp(G.camZoom || 1, me.act === 'draw' ? 0.62 + 0.1 * (1 - me.draw) : 1, 6, dt);   // over the shoulder while drawing
+      const target = me.pos.clone().add(new V3(0, me.rat ? 0.38 : 1.55, 0)).addScaledVector(right, me.rat ? 0.15 : 0.45);   // a rat's-eye camera sits low
+      G.camZoom = HC.damp(G.camZoom || 1, me.act === 'draw' ? 0.62 + 0.1 * (1 - me.draw) : me.rat ? 0.42 : 1, 6, dt);   // over the shoulder while drawing
       const dist = (me.lock && me.lock.boss ? 4.5 + me.lock.cfg.h * 0.6 : 4.3) * G.camZoom;
       const pos = target.clone().addScaledVector(f, -dist);
       const fr = W.rayFree(target, pos); if (fr < 1) pos.lerpVectors(target, pos, Math.max(0.15, fr));
