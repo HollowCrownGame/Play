@@ -232,7 +232,17 @@
       case 'bring': if (mine && me && e.byPid !== Net.pid) { me.pos.set(at.x + (Math.random() - 0.5) * 2, at.y, at.z + (Math.random() - 0.5) * 2); a.message(`${e.by} summoned you.`); } break;
       case 'home': if (mine && me) { a.travel(W.START.clone(), Math.PI); a.message(`${e.by} sent you home.`); } break;
       case 'whisper': if (mine) { a.chatLine(e.by, String(A.text || '').slice(0, 140), 'Whisper', '#b9a0e0'); a.message(`${e.by} whispers: ${String(A.text || '').slice(0, 140)}`); } break;
-      case 'giveitem': if (mine && me && HC.Items.BASES[A.item]) { HC.Items.give(A.item, lim(A.r, 0, 6, 0), lim(A.n, 1, 99, 1)); a.message(`${e.by} gave you something.`); } break;
+      case 'giveitem': if (mine && me && HC.Items.BASES[A.item]) {
+        // stackables come as one stack; weapons and armor as that many separate pieces. Whatever doesn't fit in a
+        // full satchel lands at your feet instead of vanishing.
+        const I = HC.Items, r = lim(A.r, 0, 6, 0), n = lim(A.n, 1, 99, 1), one = I.make(A.item, r, 1);
+        const stack = !!(one && I.stackable(one));
+        let dropped = 0;
+        (stack ? [I.make(A.item, r, n)] : Array.from({ length: n }, () => I.make(A.item, r, 1))).forEach(it => {
+          if (it && !I.add(it)) { I.dropAt(it, me.pos.clone(), 0); dropped++; }
+        });
+        a.message(`${e.by} gave you ${I.name(one)}${n > 1 ? ' x' + n : ''}${dropped ? ' (satchel full - dropped at your feet)' : ''}.`);
+      } break;
       case 'kit': if (mine) { HC.Items.kit(); a.message(`${e.by} gave you a starter kit.`); } break;
       case 'clearinv': if (mine) { HC.Items.clearAll(); a.message(`${e.by} emptied your satchel.`); } break;
       case 'ash': if (mine && me) { const n = lim(A.n, 1, 1e6, 1); me.ash += n; a.floatText(`+${n} ashes`); } break;
@@ -537,7 +547,8 @@
     body.querySelectorAll('[data-run]').forEach(b => b.onclick = async () => {
       const c = b.dataset.run, C = CMDS[c], args = {};
       (C.params || []).forEach(p => { const el = $(`cp_${c}_${p.k}`); if (el) args[p.k] = el.value; });
-      const pids = [...picked].filter(id => players.find(p => p.id === id));
+      let pids = [...picked].filter(id => players.find(p => p.id === id));
+      if (!pids.length && C.target === 'players' && C.self && Net.pid) pids = [Net.pid];   // nobody picked: use it on yourself
       const names = C.target === 'account' ? (pids.length ? pids.map(id => G().players.get(id).name) : acctName ? [acctName] : []) : [];
       if (C.danger && !confirm(`${C.label}: are you sure?`)) return;
       if (C.one && pids.length > 1) return consoleLog(`${C.label}: pick just one player.`);

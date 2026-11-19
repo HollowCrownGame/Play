@@ -117,6 +117,7 @@ heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', abso
   const I = HC.Items = { RAR, PERKS, BASES, inv: [], equip: emptyEquip(), quick: [null, null, null, null], loaded: false };
   const B = id => BASES[id];
   const stackable = it => B(it.b) && (B(it.b).kind === 'use' || B(it.b).kind === 'ammo');
+  I.stackable = stackable;
   const key = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   I.make = (b, r, n = 1, p) => {
     const base = B(b); if (!base) return null;
