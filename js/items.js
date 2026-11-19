@@ -15,12 +15,14 @@
     { name: 'Epic', color: '#b562ff', mult: 1.42, glow: 0.55 },
     { name: 'Legendary', color: '#ff9a1f', mult: 1.62, glow: 0.8 },
     { name: 'Mythic', color: '#ff3b3b', mult: 1.9, glow: 1.0 },
+    { name: 'Unholy', color: '#e0105a', mult: 2.3, glow: 1.3, unholy: true },
   ];
   const PERKS = {
     fire: { name: 'Burning', desc: 'Hits burn for extra fire damage.' },
     leech: { name: 'Leeching', desc: 'Heals you for 6% of the damage dealt.' },
     swift: { name: 'Swift', desc: 'Attacks 15% faster.' },
     brutal: { name: 'Brutal', desc: '+10% damage, +40% stagger.' },
+    unholy: { name: 'Unholy', desc: '+15% damage and steals 4% of it as life. Wreathed in crimson.' },
   };
   // kind: weapon | use (consumable) | ammo | trinket.  r: fixed rarity for consumables/ammo
   const BASES = {
@@ -34,7 +36,25 @@
     scythe: { name: "Reaper's Scythe", kind: 'weapon', style: 'scythe', model: 'scythe', icon: '☾', desc: 'Wide, sweeping arcs that hit crowds.' },
     longbow: { name: 'Longbow', kind: 'weapon', style: 'bow', model: 'bow', icon: '🏹', desc: 'Shoots arrows where you aim. Heavy [Q] = charged shot.', ammo: true },
     crossbow: { name: 'Crossbow', kind: 'weapon', style: 'crossbow', model: 'crossbow', icon: '⌖', desc: 'Hard-hitting bolts. Heavy [Q] fires three at once. Uses arrows.', ammo: true },
+    broadsword: { name: 'Knight\'s Broadsword', kind: 'weapon', style: 'sword', model: 'broadsword', icon: '🗡', desc: 'A wide, heavy-bladed arming sword. Hits a little harder than a longsword.', dmgMul: 1.12 },
+    sabre: { name: 'Ashen Sabre', kind: 'weapon', style: 'sword', model: 'sabre', icon: '🗡', desc: 'A curved cavalry blade. Fast and cheap on stamina.', dmgMul: 0.95, fast: true },
+    rapier: { name: 'Duelist\'s Rapier', kind: 'weapon', style: 'rapier', model: 'rapier', icon: '🤺', desc: 'Long, needle-thin thrusts with great reach.' },
+    mace: { name: 'Flanged Mace', kind: 'weapon', style: 'mace', model: 'mace', icon: '🔨', desc: 'One-handed crusher. Staggers and cracks armor.' },
+    greataxe: { name: 'Headsman\'s Greataxe', kind: 'weapon', style: 'greataxe', model: 'greataxe', icon: '🪓', desc: 'Enormous two-handed axe. Slow, devastating.' },
+    halberd: { name: 'Halberd', kind: 'weapon', style: 'halberd', model: 'halberd', icon: '🔱', desc: 'Axe, hook and spike on a long pole. Long reach, heavy thrusts.' },
     staff: { name: 'Ember Staff', kind: 'weapon', style: 'staff', model: 'staff', icon: '✦', desc: 'Casts ember orbs (stamina, no ammo). Heavy [Q] = fire wave.' },
+katana: { name: 'Moonless Katana', kind: 'weapon', style: 'katana', model: 'katana', icon: '', desc: 'Two-handed and razor fast. Long, flowing cuts.' },
+    flail: { name: 'Iron Flail', kind: 'weapon', style: 'flail', model: 'flail', icon: '', desc: 'A spiked ball on a chain: wide, crushing swings.' },
+    warpick: { name: 'War Pick', kind: 'weapon', style: 'warpick', model: 'warpick', icon: '', desc: 'Punches through armor: +30% damage against armored foes.' },
+    club: { name: 'Nailed Club', kind: 'weapon', style: 'mace', model: 'club', icon: '', desc: 'A crude cudgel studded with nails. Never better than Rare.', dmgMul: 0.85 },
+    maul: { name: 'Grave Maul', kind: 'weapon', style: 'hammer', model: 'maul', icon: '', desc: 'A block of iron on a pole. The slowest, hardest blows there are.', dmgMul: 1.15 },
+    cestus: { name: 'Iron Cestus', kind: 'weapon', style: 'fists', model: 'cestus', icon: '', desc: 'Studded iron over both fists. Very fast jab-cross combos.' },
+    javelin: { name: 'Javelins', kind: 'weapon', style: 'javelin', model: 'javelin', icon: '', desc: 'Thrown spears. Heavy [Q] is a mighty overhand throw. No ammo needed.' },
+    knives: { name: 'Throwing Knives', kind: 'weapon', style: 'knives', model: 'knife', icon: '', desc: 'Quick thrown knives. Heavy [Q] fans out three.' },
+    wand: { name: 'Frostbone Wand', kind: 'weapon', style: 'wand', model: 'wand', icon: '', desc: 'Fires freezing bolts that slow whatever they hit. Heavy [Q] fires three.' },
+    tome: { name: 'Grimoire of the Hollow', kind: 'weapon', style: 'tome', model: 'tome', icon: '', desc: 'Hold to gather a void orb that tears through every foe in its path. Epic or better only.' },
+    sickle: { name: 'Harvest Sickle', kind: 'weapon', style: 'sickle', model: 'sickle', icon: '', desc: 'A hooked reaping blade. Fast slashes that bleed foes.' },
+    crownbreaker: { name: 'Crownbreaker', kind: 'weapon', style: 'greatsword', model: 'crownbreaker', icon: '', desc: 'The blade that was meant for the King. Exists only as Unholy.', dmgMul: 1.2 },
     draught: { name: 'Minor Healing Draught', kind: 'use', r: 0, icon: '❤', tint: 0xb01818, heal: 0.35, desc: 'Restores 35% health.' },
     potion: { name: 'Healing Potion', kind: 'use', r: 1, icon: '❤', tint: 0xe02020, heal: 0.65, desc: 'Restores 65% health.' },
     elixir: { name: 'Supreme Elixir', kind: 'use', r: 3, icon: '❤', tint: 0xff4060, heal: 1, regen: 20, desc: 'Full health, then regenerates for 20 s.' },
@@ -42,10 +62,20 @@
     might: { name: 'Draught of Might', kind: 'use', r: 2, icon: '✊', tint: 0x9040e0, buff: 'might', dur: 60, desc: '+30% damage for 60 s.' },
     ironskin: { name: 'Ironskin Brew', kind: 'use', r: 2, icon: '🛡', tint: 0x4070e0, buff: 'iron', dur: 60, desc: 'Take 40% less damage for 60 s.' },
     embershard: { name: 'Ember Shard', kind: 'use', r: 2, icon: '◆', tint: 0xff7a30, flask: 1, desc: 'Refills one Ember Flask.' },
+frostbomb: { name: 'Frost Bomb', kind: 'use', r: 2, icon: '', bomb: 40, frost: true, desc: 'Throw it: a burst of rime that slows everything nearby for 5 s.' },
+    holywater: { name: 'Holy Water', kind: 'use', r: 3, icon: '', bomb: 150, holy: true, desc: 'Throw it: blessed water that sears the dead (150 damage around it).' },
+    bread: { name: 'Black Bread', kind: 'use', r: 0, icon: '', regen: 25, desc: 'Slowly restores health for 25 s.' },
+    wine: { name: 'Grave Wine', kind: 'use', r: 1, icon: '', heal: 0.15, buff: 'breath', dur: 60, desc: 'A little health, and stamina refills twice as fast for 60 s.' },
     firebomb: { name: 'Fire Bomb', kind: 'use', r: 1, icon: '💣', tint: 0x222018, bomb: 70, desc: 'Throw it: bursts into fire (70 damage around it).' },
     arrow: { name: 'Iron Arrows', kind: 'ammo', r: 0, icon: '➶', desc: 'Ammunition for bows and crossbows.' },
     firearrow: { name: 'Ember Arrows', kind: 'ammo', r: 2, icon: '➶', fire: true, desc: 'Burning ammunition: +40% damage. Used before iron arrows.' },
-    // ---- armor: four slots, three sets. Heavier sets protect more but slow you a little
+    // ---- shields: held on the left arm, used when blocking (not with bows, crossbows or staffs)
+    buckler: { name: 'Round Buckler', kind: 'shield', model: 'buckler', icon: '◍', absorb: 0.08, stab: 0.95, arc: 1.6, desc: 'Small and light. Blocks cost a little less stamina.' },
+    kite: { name: 'Knight\'s Kite Shield', kind: 'shield', model: 'shield', icon: '⛉', absorb: 0.03, stab: 0.65, arc: 1.9, desc: 'Carried by the Ashen knights. Stops almost everything.' },
+    tower: { name: 'Ashen Tower Shield', kind: 'shield', model: 'tower', icon: '▮', absorb: 0.0, stab: 0.45, arc: 2.3, weight: 0.03, desc: 'A wall of iron. Blocks everything, slows you a little.' },
+heater: { name: 'Heater Shield', kind: 'shield', model: 'heater', icon: '', absorb: 0.04, stab: 0.75, arc: 1.8, desc: 'A knight\'s painted shield. Balanced in every way.' },
+    targe: { name: 'Spiked Targe', kind: 'shield', model: 'targe', icon: '', absorb: 0.06, stab: 0.85, arc: 1.7, spikes: 14, desc: 'Studded wood with a boss spike: blocking a blow hurts the attacker.' },
+    // ---- armor: four slots, five sets. Heavier sets protect more but slow you a little
     leather_head: { name: 'Leather Cap', kind: 'armor', slot: 'head', set: 'leather', armor: 5, icon: '⛑', desc: 'Hardened leather. Light and quiet.' },
     leather_chest: { name: 'Leather Jerkin', kind: 'armor', slot: 'chest', set: 'leather', armor: 9, icon: '⛨', desc: 'Hardened leather. Light and quiet.' },
     leather_arms: { name: 'Leather Bracers', kind: 'armor', slot: 'arms', set: 'leather', armor: 3, icon: '✋', desc: 'Hardened leather. Light and quiet.' },
@@ -57,6 +87,14 @@
     plate_head: { name: 'Ashen Great Helm', kind: 'armor', slot: 'head', set: 'plate', armor: 13, icon: '⛑', desc: 'Knightly plate of the Ashen Guard. Heavy.' },
     plate_chest: { name: 'Ashen Cuirass', kind: 'armor', slot: 'chest', set: 'plate', armor: 24, icon: '⛨', desc: 'Knightly plate of the Ashen Guard. Heavy.' },
     plate_arms: { name: 'Ashen Vambraces', kind: 'armor', slot: 'arms', set: 'plate', armor: 9, icon: '✋', desc: 'Knightly plate of the Ashen Guard. Heavy.' },
+    hunter_head: { name: 'Hunter\'s Hood', kind: 'armor', slot: 'head', set: 'hunter', armor: 6, icon: '⛑', desc: 'Studded leather and wolf fur. Light.' },
+    hunter_chest: { name: 'Studded Brigandine', kind: 'armor', slot: 'chest', set: 'hunter', armor: 11, icon: '⛨', desc: 'Studded leather and wolf fur. Light.' },
+    hunter_arms: { name: 'Studded Bracers', kind: 'armor', slot: 'arms', set: 'hunter', armor: 4, icon: '✋', desc: 'Studded leather and wolf fur. Light.' },
+    hunter_legs: { name: 'Studded Greaves', kind: 'armor', slot: 'legs', set: 'hunter', armor: 6, icon: '👢', desc: 'Studded leather and wolf fur. Light.' },
+    bone_head: { name: 'Horned Bone Helm', kind: 'armor', slot: 'head', set: 'bone', armor: 11, icon: '⛑', desc: 'Plates of old bone bound with sinew. Medium.' },
+    bone_chest: { name: 'Bonewrought Cuirass', kind: 'armor', slot: 'chest', set: 'bone', armor: 19, icon: '⛨', desc: 'Plates of old bone bound with sinew. Medium.' },
+    bone_arms: { name: 'Bonewrought Vambraces', kind: 'armor', slot: 'arms', set: 'bone', armor: 7, icon: '✋', desc: 'Plates of old bone bound with sinew. Medium.' },
+    bone_legs: { name: 'Bonewrought Greaves', kind: 'armor', slot: 'legs', set: 'bone', armor: 11, icon: '👢', desc: 'Plates of old bone bound with sinew. Medium.' },
     plate_legs: { name: 'Ashen Greaves', kind: 'armor', slot: 'legs', set: 'plate', armor: 14, icon: '👢', desc: 'Knightly plate of the Ashen Guard. Heavy.' },
     ring: { name: 'Ring of Vigor', kind: 'trinket', icon: '◯', stat: { hp: 18 }, desc: 'More health.' },
     haste: { name: 'Band of Haste', kind: 'trinket', icon: '➰', stat: { speed: 0.05 }, desc: 'Move faster.' },
@@ -65,14 +103,17 @@
     pendant: { name: 'Pendant of Breath', kind: 'trinket', icon: '❂', stat: { stam: 0.18 }, desc: 'Stamina refills faster.' },
     fang: { name: 'Vampire Fang', kind: 'trinket', icon: '⟆', stat: { leech: 0.025 }, desc: 'Heal from the damage you deal.' },
     coin: { name: "Gravedigger's Coin", kind: 'trinket', icon: '◉', stat: { luck: 0.2 }, desc: 'More ashes from every kill.' },
+    skull: { name: 'Skull of the Pretender', kind: 'trinket', icon: '', stat: { dmg: 0.09 }, desc: 'A crowned skull that whispers. Much more damage.' },
+    feather: { name: 'Raven Feather', kind: 'trinket', icon: '', stat: { speed: 0.07 }, desc: 'Light as a carrion bird. Move faster.' },
+    eye: { name: 'Eye of the Watcher', kind: 'trinket', icon: '', stat: { def: 0.09 }, desc: 'It never closes. Take much less damage. Epic or better only.' },
   };
   const STAT_LABEL = { hp: v => `+${Math.round(v)} max health`, speed: v => `+${Math.round(v * 100)}% move speed`, def: v => `-${Math.round(v * 100)}% damage taken`, dmg: v => `+${Math.round(v * 100)}% damage`, stam: v => `+${Math.round(v * 100)}% stamina regen`, leech: v => `${(v * 100).toFixed(1)}% life steal`, luck: v => `+${Math.round(v * 100)}% ashes` };
   const STACK = { use: 20, ammo: 99 };
   const MAX_SLOTS = 40;
 
-  const SLOTS = ['w', 't1', 't2', 'head', 'chest', 'arms', 'legs'], ARMOR_SLOTS = ['head', 'chest', 'arms', 'legs'];
-  const WEIGHT = { leather: 0, chain: 0.012, plate: 0.025 };
-  const emptyEquip = () => ({ w: null, t1: null, t2: null, head: null, chest: null, arms: null, legs: null });
+  const SLOTS = ['w', 'off', 't1', 't2', 'head', 'chest', 'arms', 'legs'], ARMOR_SLOTS = ['head', 'chest', 'arms', 'legs'];
+  const WEIGHT = { leather: 0, hunter: 0, chain: 0.012, bone: 0.015, plate: 0.025 };
+  const emptyEquip = () => ({ w: null, off: null, t1: null, t2: null, head: null, chest: null, arms: null, legs: null });
   const I = HC.Items = { RAR, PERKS, BASES, inv: [], equip: emptyEquip(), quick: [null, null, null, null], loaded: false };
   const B = id => BASES[id];
   const stackable = it => B(it.b) && (B(it.b).kind === 'use' || B(it.b).kind === 'ammo');
@@ -80,12 +121,26 @@
   I.make = (b, r, n = 1, p) => {
     const base = B(b); if (!base) return null;
     if (base.r !== undefined) r = base.r;
-    r = Math.max(base.minR || 0, Math.min(5, r | 0));
+    const [lo, hi] = I.range(b); r = Math.max(lo, Math.min(hi, r | 0));
     const it = { k: key(), b, r, n: Math.max(1, n | 0) };
-    const perk = p || base.perk || (base.kind === 'weapon' && r >= 3 ? Object.keys(PERKS)[Math.floor(Math.random() * 4)] : null);
+    const perk = p || base.perk || (base.kind === 'weapon' && r >= 6 ? 'unholy' : base.kind === 'weapon' && r >= 3 ? Object.keys(PERKS)[Math.floor(Math.random() * 4)] : null);
     if (perk) it.p = perk;
     return it;
   };
+  // item pictures (rendered from the item models by tools/build_icons.py) instead of emoji
+  I.icon = function (b) {
+    const id = typeof b === 'string' ? b : Object.keys(BASES).find(k => BASES[k] === b), H = window.HC_ICONS;
+    if (!H || H.map[id] === undefined) return '<i class="ic"></i>';
+    const i = H.map[id], x = (i % H.cols) / (H.cols - 1) * 100, y = Math.floor(i / H.cols) / Math.max(1, H.rows - 1) * 100;
+    return `<i class="ic" style="background-position:${x}% ${y}%"></i>`;
+  };
+  if (window.HC_ICONS) document.documentElement.style.setProperty('--icons', `url(${HC_ICONS.src})`), document.documentElement.style.setProperty('--icols', HC_ICONS.cols), document.documentElement.style.setProperty('--irows', HC_ICONS.rows);  // which rarities each item can come in ('locked' items have a narrow range: a club is never better than Rare,
+  // the Crownbreaker only exists as Unholy; most gear can roll anything from Common to Unholy)
+  const RANGES = { longsword: [0, 4], emberblade: [3, 5], hammer: [1, 6], scythe: [2, 6], crossbow: [1, 6], broadsword: [1, 5], sabre: [1, 6], rapier: [2, 6],
+    greataxe: [2, 6], halberd: [1, 6], staff: [1, 6], katana: [2, 6], flail: [0, 6], warpick: [0, 5], club: [0, 2], maul: [2, 6], cestus: [0, 6], javelin: [0, 5],
+    knives: [0, 6], wand: [1, 6], tome: [3, 6], sickle: [0, 4], crownbreaker: [6, 6], tower: [2, 6], targe: [1, 6], coin: [0, 3], skull: [2, 6], eye: [3, 6] };
+  const SET_RANGE = { leather: [0, 3], hunter: [1, 4], chain: [1, 5], bone: [2, 6], plate: [3, 6] };
+  I.range = b => { const base = B(b); if (!base) return [0, 6]; if (base.r !== undefined) return [base.r, base.r]; return RANGES[b] || (base.set && SET_RANGE[base.set]) || [base.minR || 0, 6]; };
   I.name = it => (B(it.b) || { name: it.b }).name;
   I.color = it => RAR[it.r || 0].color;
   I.label = it => `<span style="color:${I.color(it)}">${esc(I.name(it))}</span>${it.n > 1 ? ` <span class="small">x${it.n}</span>` : ''}`;
@@ -93,6 +148,15 @@
   // what the character wears, as a short code for the network ('plate4,chain0,,leather2') and as sets for the avatar
   I.armorCode = () => ARMOR_SLOTS.map(s => { const it = I.find(I.equip[s]); return it ? B(it.b).set + (it.r || 0) : ''; }).join(',');
   I.armorVisual = code => { const p = String(code || '').split(','), v = {}; ARMOR_SLOTS.forEach((s, i) => { const m = /^([a-z]+)/.exec(p[i] || ''); v[s] = m ? m[1] : null; }); return v; };
+  // the shield on your arm: how much of a blocked blow still gets through, and how much stamina blocking costs
+  I.shield = () => { const it = I.find(I.equip.off); return it && B(it.b) && B(it.b).kind === 'shield' ? it : null; };
+  I.shieldStats = () => {
+    const it = I.shield(); if (!it) return { absorb: 0.12, stab: 1.6, arc: 1.4 };
+    const b = B(it.b), m = 1 - (it.r || 0) * 0.07;
+    return { absorb: b.absorb * m, stab: b.stab * m, arc: b.arc };
+  };
+  I.shieldCode = () => { const it = I.shield(); return it ? it.b + (it.r || 0) : ''; };
+  I.shieldVisual = code => { const m = /^([a-z]+)(\d)?$/.exec(code || ''); return m && B(m[1]) ? { model: B(m[1]).model, r: +(m[2] || 0) } : null; };
   I.trinketVal = it => { const s = B(it.b).stat, k = Object.keys(s)[0]; return [k, s[k] * (1 + (it.r || 0) * 0.45)]; };
 
   // weapon stats for the local player: style numbers scaled by rarity and perk
@@ -101,7 +165,8 @@
     const it = I.weapon(), base = it ? B(it.b) : B('longsword'), S = HC.STYLES[base.style] || HC.STYLES.sword;
     const s = Object.assign({}, S[kind === 'heavy' ? 'heavy' : 'light']);
     const r = it ? RAR[it.r || 0].mult : 1, p = it && it.p;
-    s.dmg *= r * (p === 'brutal' ? 1.1 : 1); s.poise *= p === 'brutal' ? 1.4 : 1;
+    s.dmg *= r * (p === 'brutal' ? 1.1 : p === 'unholy' ? 1.15 : 1) * (base.dmgMul || 1);
+    if (base.fast) { s.dur *= 0.88; s.hit *= 0.88; s.st *= 0.85; } s.poise *= p === 'brutal' ? 1.4 : 1;
     if (p === 'swift') { s.dur *= 0.85; s.hit *= 0.85; }
     s.perk = p; s.ranged = !!S.ranged; s.style = base.style;
     return s;
@@ -112,6 +177,7 @@
   I.bonus = function () {
     const out = { hp: 0, speed: 0, def: 0, dmg: 0, stam: 0, leech: 0, luck: 0, armor: 0, weight: 0 };
     ARMOR_SLOTS.forEach(s => { const it = I.find(I.equip[s]), b = it && B(it.b); if (b && b.kind === 'armor') { out.armor += I.armorVal(it); out.weight += WEIGHT[b.set] || 0; } });
+    const sh = I.shield(); if (sh && B(sh.b).weight) out.weight += B(sh.b).weight;
     ['t1', 't2'].forEach(s => { const it = I.find(I.equip[s]); if (it && B(it.b).kind === 'trinket') { const [k, v] = I.trinketVal(it); out[k] += v; } });
     return out;
   };
@@ -159,6 +225,7 @@
     if (kind !== 'use' && kind !== 'ammo' && !I.isEquipped(k)) equipSound(B(it.b));
     if (kind === 'weapon') I.equip.w = k;
     else if (kind === 'armor') I.equip[B(it.b).slot] = k;
+    else if (kind === 'shield') I.equip.off = k;
     else if (kind === 'trinket') {
       if (I.equip.t1 === k || I.equip.t2 === k) return;
       if (!I.equip.t1) I.equip.t1 = k; else if (!I.equip.t2) I.equip.t2 = k; else { I.equip.t2 = I.equip.t1; I.equip.t1 = k; }
@@ -223,7 +290,7 @@
     const me = a.me(), base = B(it.b); if (!me || me.downed || me.dead) return;
     if (base.kind === 'weapon' || base.kind === 'trinket') { I.equipItem(k); return; }
     if (base.kind !== 'use') return;
-    if (base.bomb) { if (a.throwBomb(base.bomb)) I.remove(k, 1); return; }
+    if (base.bomb) { if (a.throwBomb(base.bomb, base.frost ? 'frost' : base.holy ? 'holy' : 'fire')) I.remove(k, 1); return; }
     if (!a.drink(() => {
       if (base.heal) me.hp = Math.min(me.maxHp, me.hp + me.maxHp * base.heal);
       if (base.regen) me.buffs.regen = base.regen;
@@ -238,7 +305,7 @@
 
   // ================================================================ loot (host rolls, everyone sees, first to take it keeps it)
   const LOOT_CHANCE = { hollow: 0.2, drowned: 0.22, knight: 0.5, arbalist: 0.45, wraith: 0.45 };
-  const RW = [52, 26, 13, 6, 2.5, 0.5];
+  const RW = [52, 26, 13, 6, 2.5, 0.5, 0.12];
   function rollRarity(boost = 0) {
     const w = RW.map((x, i) => x * Math.pow(1 + boost, i));
     let t = Math.random() * w.reduce((s, x) => s + x, 0);
@@ -248,17 +315,20 @@
   const WEAPONS = Object.keys(BASES).filter(b => BASES[b].kind === 'weapon');
   const TRINKETS = Object.keys(BASES).filter(b => BASES[b].kind === 'trinket');
   const ARMORS = Object.keys(BASES).filter(b => BASES[b].kind === 'armor');
-  const USES = ['draught', 'draught', 'draught', 'potion', 'potion', 'elixir', 'tonic', 'might', 'ironskin', 'embershard', 'firebomb', 'firebomb'];
+  const SHIELDS = Object.keys(BASES).filter(b => BASES[b].kind === 'shield');
+  const USES = ['draught', 'draught', 'draught', 'potion', 'potion', 'elixir', 'tonic', 'might', 'ironskin', 'embershard', 'firebomb', 'firebomb', 'frostbomb', 'holywater', 'bread', 'bread', 'wine'];
   I.random = function (boost = 0, minR = 0) {
     const roll = Math.random();
     if (roll < 0.25) return I.make(Math.random() < 0.75 ? 'arrow' : 'firearrow', 0, 6 + Math.floor(Math.random() * 14));
     if (roll < 0.55) return I.make(USES[Math.floor(Math.random() * USES.length)], 0, 1 + (Math.random() < 0.3 ? 1 : 0));
-    const pool = roll < 0.78 ? WEAPONS : roll < 0.9 ? ARMORS : TRINKETS;
+    const pool = roll < 0.74 ? WEAPONS : roll < 0.88 ? ARMORS : roll < 0.93 ? SHIELDS : TRINKETS;
     return I.make(pool[Math.floor(Math.random() * pool.length)], Math.max(minR, rollRarity(boost)));
   };
   I.rollLoot = function (e) {          // host only, on an enemy death
     const pos = e.pos;
     if (e.boss) { for (let i = 0; i < 3; i++) I.dropAt(I.random(1.2, 3), pos, i); return; }
+    // the knights guarding the first great door carry kite shields: 70% chance to drop one (other knights 15%)
+    if (e.type === 'knight' && Math.random() < (e.doorGuard ? 0.7 : 0.15)) I.dropAt(I.make('kite', rollRarity(0.5)), pos, 1);
     if (Math.random() < (LOOT_CHANCE[e.type] || 0)) I.dropAt(I.random(e.type === 'knight' || e.type === 'wraith' ? 0.4 : 0), pos, 0);
   };
   I.dropAt = function (it, pos, i = 0) {
@@ -295,6 +365,7 @@
     HC.scene.remove(L.g); const i = G().inter.indexOf(L.inter); if (i >= 0) G().inter.splice(i, 1);
     loot.delete(id);
   }
+  I.clearLoot = () => [...loot.keys()].forEach(removeLoot);
   I.update = function (dt, t) { loot.forEach(L => { L.g.children[0].rotation.y += dt * 1.2; L.beam.material.opacity = 0.16 + Math.sin(t * 3) * 0.06; }); };
 
   // ================================================================ ember merchant (at shrines, for ashes)
@@ -304,7 +375,7 @@
     const me = api() && api().me(); if (!me || !el) return;
     el.innerHTML = `<h3>Ember merchant <span class="small">(you have ${me.ash} ashes)</span></h3><div class="shop">${SHOP.map(([b, r, n, cost], i) => {
       const base = B(b), rr = base.r !== undefined ? base.r : r;
-      return `<button data-buy="${i}" ${me.ash < cost ? 'disabled' : ''} title="${esc(base.desc)}"><span style="color:${RAR[rr].color}">${base.icon} ${esc(base.name)}${n > 1 ? ' x' + n : ''}</span> <span class="small">${cost}</span></button>`;
+      return `<button data-buy="${i}" ${me.ash < cost ? 'disabled' : ''} title="${esc(base.desc)}"><span style="color:${RAR[rr].color}">${I.icon(base)} ${esc(base.name)}${n > 1 ? ' x' + n : ''}</span> <span class="small">${cost}</span></button>`;
     }).join('')}</div>`;
     el.querySelectorAll('[data-buy]').forEach(btn => btn.onclick = () => {
       const [b, r, n, cost] = SHOP[+btn.dataset.buy]; if (me.ash < cost) return;
@@ -312,6 +383,73 @@
       I.renderShop(el);
     });
   };
+
+  // ================================================================ Odo's stall in the village: buy and sell for ashes
+  const RAR_PRICE = [1, 1.8, 3.2, 6, 11, 20, 40];
+  const SET_PRICE = { leather: 0.8, hunter: 1.1, chain: 1.6, bone: 2.0, plate: 2.6 };
+  const SLOT_PRICE = { head: 160, chest: 260, arms: 110, legs: 160 };
+  const USE_PRICE = { frostbomb: 200, holywater: 320, bread: 40, wine: 120, draught: 60, potion: 180, elixir: 700, tonic: 150, might: 320, ironskin: 320, embershard: 400, firebomb: 140 };
+  I.value = function (b, r = 0, n = 1) {
+    const base = B(b); if (!base) return 0;
+    let v = 100;
+    if (base.kind === 'weapon') v = 220 * (base.dmgMul || 1);
+    else if (base.kind === 'armor') v = SLOT_PRICE[base.slot] * (SET_PRICE[base.set] || 1);
+    else if (base.kind === 'shield') v = { buckler: 180, kite: 380, tower: 520 }[b] || 300;
+    else if (base.kind === 'trinket') v = 300;
+    else if (base.kind === 'use') return (USE_PRICE[b] || 100) * n;
+    else if (base.kind === 'ammo') return (b === 'firearrow' ? 15 : 4) * n;
+    return Math.round(v * RAR_PRICE[Math.max(I.range(b)[0], r || 0)] / 5) * 5;
+  };
+  let shopTab = 'buy', stockDay = -1, stock = [];
+  function rollStock() {
+    // staples are always there; ten pieces of equipment change every dawn
+    const day = Math.floor((G() && G().t ? G().t : 0) / 60 / ((HC.Settings.v.dayLen || 16)));
+    if (day === stockDay && stock.length) return;
+    stockDay = day;
+    const rnd = (() => { let s = 1013904223 + day * 7919; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; })();
+    stock = [['draught', 0, 1], ['potion', 0, 1], ['tonic', 0, 1], ['bread', 0, 1], ['wine', 0, 1], ['firebomb', 0, 1], ['frostbomb', 0, 1], ['arrow', 0, 20], ['firearrow', 0, 10], ['embershard', 0, 1],
+      ['longsword', 0, 1], ['longbow', 0, 1], ['buckler', 0, 1], ['leather_chest', 0, 1], ['leather_head', 0, 1]];
+    const gear = Object.keys(BASES).filter(k => ['weapon', 'armor', 'shield'].includes(BASES[k].kind) && I.range(k)[0] <= 2);
+    for (let i = 0; i < 10; i++) {
+      const b = gear[Math.floor(rnd() * gear.length)], x = rnd();
+      stock.push([b, x < 0.5 ? 0 : x < 0.8 ? 1 : x < 0.95 ? 2 : 3, 1]);
+    }
+  }
+  I.openShop = function () {
+    if (!I.loaded) return;
+    document.exitPointerLock && document.exitPointerLock();
+    rollStock(); show('shop'); renderShopMenu();
+  };
+  I.closeShop = function () { show('shop', false); const a = api(); if (a && G().started && !G().ended) a.lock(); };
+  $('shopClose').onclick = () => I.closeShop();
+  document.querySelectorAll('#shop [data-st]').forEach(b => b.onclick = () => { shopTab = b.dataset.st; renderShopMenu(); });
+  function renderShopMenu() {
+    const me = api() && api().me(); if (!me) return;
+    document.querySelectorAll('#shop [data-st]').forEach(b => b.classList.toggle('sel', b.dataset.st === shopTab));
+    $('shopAsh').innerHTML = `You carry <b>${me.ash}</b> ashes. Fresh stock every dawn.`;
+    const ware = (base, r, n, price, extra, attr) => `<div class="ware ${extra}" ${attr} title="${esc(base.desc)}"><span class="ico">${I.icon(base)}</span>
+      <span class="wn"><span style="color:${RAR[base.r !== undefined ? base.r : r].color}">${esc(base.name)}${n > 1 ? ' x' + n : ''}</span><small>${RAR[base.r !== undefined ? base.r : r].name} ${{ weapon: 'weapon', armor: 'armor', shield: 'shield', use: 'consumable', ammo: 'ammo', trinket: 'trinket' }[base.kind]}</small></span>
+      <span class="pr">${price}</span></div>`;
+    if (shopTab === 'buy') {
+      $('shopBody').innerHTML = '<div class="shopgrid">' + stock.map(([b, r, n], i) => { const p = I.value(b, r, n); return ware(B(b), r, n, p, me.ash < p ? 'poor' : '', `data-buy="${i}"`); }).join('') + '</div>';
+      $('shopBody').querySelectorAll('[data-buy]').forEach(el => el.onclick = () => {
+        const [b, r, n] = stock[+el.dataset.buy], p = I.value(b, r, n);
+        if (me.ash < p) { $('shopMsg').textContent = 'Not enough ashes.'; return; }
+        if (I.add(I.make(b, r, n))) { me.ash -= p; HC.Audio.play('coins', null, 0.7); $('shopMsg').textContent = `Bought ${B(b).name}.`; if (BASES[b].kind !== 'use' && BASES[b].kind !== 'ammo') stock.splice(+el.dataset.buy, 1); }
+        renderShopMenu();
+      });
+    } else {
+      const list = I.inv.filter(it => !I.isEquipped(it.k));
+      $('shopBody').innerHTML = list.length ? '<div class="shopgrid">' + list.map(it => ware(B(it.b), it.r, it.n, Math.max(1, Math.round(I.value(it.b, it.r, it.n) * 0.35)), '', `data-sell="${it.k}"`)).join('') + '</div>'
+        : '<p class="small">Nothing to sell (equipped things stay on you).</p>';
+      $('shopBody').querySelectorAll('[data-sell]').forEach(el => el.onclick = () => {
+        const it = I.find(el.dataset.sell); if (!it) return;
+        const p = Math.max(1, Math.round(I.value(it.b, it.r, it.n) * 0.35));
+        I.remove(it.k); me.ash += p; HC.Audio.play('coins', null, 0.6); $('shopMsg').textContent = `Sold for ${p} ashes.`;
+        renderShopMenu();
+      });
+    }
+  }
 
   // ================================================================ satchel UI
   let sel = null;
@@ -323,7 +461,7 @@
   I.close = function () { show('inventory', false); const a = api(); if (a && G().started && !G().ended) a.lock(); };
   const slotHtml = (k, label, hint) => {
     const it = I.find(k);
-    return `<div class="eslot ${it ? '' : 'empty'}" ${it ? `data-sel="${it.k}" style="border-color:${I.color(it)}"` : ''}><small>${label}</small>${it ? `<b style="color:${I.color(it)}">${B(it.b).icon} ${esc(I.name(it))}</b>` : `<span class="small">${hint}</span>`}</div>`;
+    return `<div class="eslot ${it ? '' : 'empty'}" ${it ? `data-sel="${it.k}" style="border-color:${I.color(it)}"` : ''}><small>${label}</small>${it ? `<b style="color:${I.color(it)}">${I.icon(it.b)} ${esc(I.name(it))}</b>` : `<span class="small">${hint}</span>`}</div>`;
   };
   function itemInfo(it) {
     const base = B(it.b), R = RAR[it.r || 0];
@@ -334,24 +472,25 @@
       if (S.ranged && base.ammo) lines.push(`Arrows: ${I.count('arrow')} iron, ${I.count('firearrow')} ember`);
     }
     if (base.kind === 'trinket') { const [k, v] = I.trinketVal(it); lines.push(STAT_LABEL[k](v)); }
+    if (base.kind === 'shield') { const m = 1 - (it.r || 0) * 0.07; lines.push(`Blocked blows: ${Math.round(base.absorb * m * 100)}% gets through, stamina cost x${(base.stab * m).toFixed(2)}`); }
     if (base.kind === 'armor') { lines.push(`Armor <b>${I.armorVal(it)}</b> (${base.slot})`); if (WEIGHT[base.set]) lines.push(`-${(WEIGHT[base.set] * 100).toFixed(1)}% move speed`); }
     if (it.p) lines.push(`<b>${PERKS[it.p].name}:</b> ${PERKS[it.p].desc}`);
-    return `<h3 style="color:${R.color}">${base.icon} ${esc(base.name)}${it.n > 1 ? ' x' + it.n : ''}</h3>
-      <p class="small">${R.name} ${{ weapon: 'weapon', use: 'consumable', ammo: 'ammunition', trinket: 'trinket', armor: 'armor' }[base.kind]}</p>
+    return `<h3 style="color:${R.color}">${I.icon(base)} ${esc(base.name)}${it.n > 1 ? ' x' + it.n : ''}</h3>
+      <p class="small">${R.name} ${{ weapon: 'weapon', use: 'consumable', ammo: 'ammunition', trinket: 'trinket', armor: 'armor', shield: 'shield' }[base.kind]}</p>
       <p>${esc(base.desc)}</p>${lines.map(l => `<p class="small">${l}</p>`).join('')}`;
   }
   function renderInv() {
     if (sel && !I.find(sel)) sel = null;
     $('invEquip').innerHTML = slotHtml(I.equip.w, 'Weapon', 'empty') + slotHtml(I.equip.t1, 'Trinket I', 'empty') + slotHtml(I.equip.t2, 'Trinket II', 'empty') +
-      slotHtml(I.equip.head, 'Head', 'empty') + slotHtml(I.equip.chest, 'Chest', 'empty') + slotHtml(I.equip.arms, 'Arms', 'empty') + slotHtml(I.equip.legs, 'Legs', 'empty') +
+      slotHtml(I.equip.off, 'Shield', 'empty') + slotHtml(I.equip.head, 'Head', 'empty') + slotHtml(I.equip.chest, 'Chest', 'empty') + slotHtml(I.equip.arms, 'Arms', 'empty') + slotHtml(I.equip.legs, 'Legs', 'empty') +
       `<div class="eslot empty"><small>Armor</small><b>${I.bonus().armor}</b> <span class="small">(-${Math.round((1 - 100 / (100 + I.bonus().armor)) * 100)}% damage)</span></div>` +
-      `<div class="qrow">${I.quick.map((k, i) => { const it = I.find(k); return `<div class="qslot" ${it ? `data-sel="${it.k}"` : ''}><small>${i + 1}</small>${it ? `${B(it.b).icon}<i>${it.n}</i>` : ''}</div>`; }).join('')}</div>`;
+      `<div class="qrow">${I.quick.map((k, i) => { const it = I.find(k); return `<div class="qslot" ${it ? `data-sel="${it.k}"` : ''}><small>${i + 1}</small>${it ? `${I.icon(it.b)}<i>${it.n}</i>` : ''}</div>`; }).join('')}</div>`;
     $('invGrid').innerHTML = I.inv.map(it => `<div class="islot ${it.k === sel ? 'sel' : ''} ${I.isEquipped(it.k) ? 'eq' : ''}" data-sel="${it.k}" style="border-color:${I.color(it)}" title="${esc(I.name(it))}">
-        <span class="ico">${B(it.b).icon}</span>${it.n > 1 ? `<i>${it.n}</i>` : ''}${I.isEquipped(it.k) ? '<em>E</em>' : ''}</div>`).join('') +
+        <span class="ico">${I.icon(it.b)}</span>${it.n > 1 ? `<i>${it.n}</i>` : ''}${I.isEquipped(it.k) ? '<em>E</em>' : ''}</div>`).join('') +
       Array.from({ length: Math.max(0, MAX_SLOTS - I.inv.length) }, () => '<div class="islot empty"></div>').join('');
     const it = I.find(sel), inGame = G() && G().started;
     $('invInfo').innerHTML = it ? itemInfo(it) + `<div class="row">
-        ${['weapon', 'trinket', 'armor'].includes(B(it.b).kind) ? (I.isEquipped(it.k) ? '<button data-do="unequip">Unequip</button>' : '<button data-do="equip">Equip</button>') : ''}
+        ${['weapon', 'trinket', 'armor', 'shield'].includes(B(it.b).kind) ? (I.isEquipped(it.k) ? '<button data-do="unequip">Unequip</button>' : '<button data-do="equip">Equip</button>') : ''}
         ${B(it.b).kind === 'use' && inGame ? '<button data-do="use">Use</button>' : ''}
         ${B(it.b).kind === 'use' ? [0, 1, 2, 3].map(i => `<button data-q="${i}" class="small">Slot ${i + 1}</button>`).join('') : ''}
         ${inGame ? '<button data-do="drop">Drop on the ground</button>' : ''}<button data-do="destroy">Destroy</button></div>`
@@ -380,8 +519,8 @@
     const w = I.weapon(), el = $('quickbar'); if (!el) return;
     const base = w ? B(w.b) : null;
     const ammo = base && base.ammo ? `<span class="ammo">${I.count('firearrow') ? `<b style="color:${RAR[2].color}">${I.count('firearrow')}</b> + ` : ''}${I.count('arrow')} ➶</span>` : '';
-    const html = `<div class="qw" style="border-color:${w ? I.color(w) : '#444'}">${base ? base.icon : '✊'} <span>${base ? esc(base.name) : 'Fists'}</span>${ammo}</div>` +
-      I.quick.map((k, i) => { const it = I.find(k); return `<div class="qs" data-qs="${i}" style="border-color:${it ? I.color(it) : '#333'}"><small>${i + 1}</small>${it ? `${B(it.b).icon}<i>${it.n}</i>` : ''}</div>`; }).join('');
+    const html = `<div class="qw" style="border-color:${w ? I.color(w) : '#444'}">${base ? I.icon(base) : ''} <span>${base ? esc(base.name) : 'Fists'}</span>${ammo}</div>` +
+      I.quick.map((k, i) => { const it = I.find(k); return `<div class="qs" data-qs="${i}" style="border-color:${it ? I.color(it) : '#333'}"><small>${i + 1}</small>${it ? `${I.icon(it.b)}<i>${it.n}</i>` : ''}</div>`; }).join('');
     if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; el.querySelectorAll('[data-qs]').forEach(q => q.onclick = ev => { ev.stopPropagation(); I.quickUse(+q.dataset.qs); }); }
   };
 
@@ -400,7 +539,7 @@
   const tmsg = t => { $('tradeMsg').textContent = t || ''; };
   const pickList = (items, map, owner) => items.length ? items.map(it => {
     const on = map.has(it.k), eq = owner === 'me' && I.isEquipped(it.k);
-    return `<div class="tpick ${on ? 'on' : ''} ${eq ? 'eq' : ''}" data-pk="${it.k}" data-own="${owner}"><span>${B(it.b) ? B(it.b).icon : '?'} ${I.label(it)}</span>
+    return `<div class="tpick ${on ? 'on' : ''} ${eq ? 'eq' : ''}" data-pk="${it.k}" data-own="${owner}"><span>${I.icon(it.b)} ${I.label(it)}</span>
       ${on && it.n > 1 ? `<input class="num" type="number" min="1" max="${it.n}" value="${map.get(it.k)}" data-amt="${it.k}" data-own="${owner}">` : ''}${eq ? '<span class="small">equipped</span>' : ''}</div>`;
   }).join('') : '<p class="small">Nothing.</p>';
   async function renderTrade() {
@@ -432,8 +571,8 @@
         const acts = ttab === 'in' && t.status === 'open' ? `<button data-acc="${t.id}">Accept</button><button data-dec="${t.id}">Decline</button>`
           : ttab === 'out' && t.status === 'open' ? `<button data-can="${t.id}">Cancel</button>` : '';
         return `<div class="toffer"><div><b>${ttab === 'in' ? 'From' : 'To'} ${esc(other)}</b> <span class="small">- ${st[t.status] || t.status}${t.note ? ' - "' + esc(t.note) + '"' : ''}</span></div>
-          <div class="tcols"><div><small>You get</small>${(youGet || []).map(it => `<div>${B(it.b) ? B(it.b).icon : ''} ${I.label(it)}</div>`).join('') || '<div class="small">nothing</div>'}</div>
-          <div><small>You give</small>${(youGive || []).map(it => `<div>${B(it.b) ? B(it.b).icon : ''} ${I.label(it)}</div>`).join('') || '<div class="small">nothing</div>'}</div></div><div class="row">${acts}</div></div>`;
+          <div class="tcols"><div><small>You get</small>${(youGet || []).map(it => `<div>${I.icon(it.b)} ${I.label(it)}</div>`).join('') || '<div class="small">nothing</div>'}</div>
+          <div><small>You give</small>${(youGive || []).map(it => `<div>${I.icon(it.b)} ${I.label(it)}</div>`).join('') || '<div class="small">nothing</div>'}</div></div><div class="row">${acts}</div></div>`;
       }).join('') : '<p class="small">No trades here yet.</p>';
       body.querySelectorAll('[data-acc]').forEach(b => b.onclick = () => accept(b.dataset.acc));
       body.querySelectorAll('[data-dec]').forEach(b => b.onclick = () => O().tradeStatus(b.dataset.dec, 'declined').catch(e => tmsg('Could not decline (' + (e.code || e.message) + ').')));

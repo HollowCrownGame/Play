@@ -26,7 +26,14 @@
     ready = true;
     decodeAll();
   };
-  A.resume = () => { if (ctx && ctx.state !== 'running') ctx.resume(); };
+  A.resume = () => { if (ctx && !A.paused && ctx.state !== 'running') ctx.resume(); };
+  // pause menu / reading / dialogue in a solo journey: every sound, music and ambience stops exactly where it is
+  A.paused = false;
+  A.setPaused = function (p) {
+    if (A.paused === !!p) return; A.paused = !!p;
+    if (!ctx) return;
+    if (p) ctx.suspend(); else ctx.resume();
+  };
 
   // ---- iPhone / iPad: Safari keeps Web Audio silent until a tap resumes it, and the ring/silent switch mutes it
   // unless the page's audio session is "playback" (iOS 16.4+), or an <audio> element has played (older iOS).
@@ -39,13 +46,13 @@
   }
   let unlocked = false;
   function unlock() {
-    if (ctx && ctx.state !== 'running') ctx.resume();
+    if (ctx && !A.paused && ctx.state !== 'running') ctx.resume();
     if (unlocked) return; unlocked = true;
     try { const el = new Audio(silentWav()); el.setAttribute('playsinline', ''); const p = el.play(); if (p && p.catch) p.catch(() => { unlocked = false; }); } catch (e) { unlocked = false; }
   }
   ['touchend', 'pointerup', 'click', 'keydown'].forEach(t => addEventListener(t, unlock, { capture: true, passive: true }));
   // coming back to the tab (iOS suspends audio in the background)
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && ctx.state !== 'running') ctx.resume(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && !A.paused && ctx.state !== 'running') ctx.resume(); });
   // Settings -> "Test sound": a plain beep (proves the audio output works) then a sword swing (proves the
   // sound files decode), with a status line the player can report back.
   A.test = function () {
@@ -119,11 +126,29 @@
     }
     return g;
   }
-  function sample(ev, dest, t, rate = 1, gain = 1) {
+  // the loudest 10 ms of a buffer (seconds from its start), measured once
+  function peakOf(b) {
+    if (b._pk !== undefined) return b._pk;
+    const d = b.getChannelData(0), w = Math.max(1, Math.round(b.sampleRate * 0.01)), n = Math.min(d.length, b.sampleRate * 1.5);
+    let best = 0, at = 0;
+    for (let i = 0; i < n; i += w) { let e = 0; for (let j = i; j < Math.min(n, i + w); j++) e += d[j] * d[j]; if (e > best) { best = e; at = i; } }
+    return (b._pk = at / b.sampleRate);
+  }
+  // align: the sample's peak plays exactly A.LEAD seconds after t (whichever variant is picked), so a swing's
+  // "whoosh" lands on the animation's impact frame instead of drifting early or late
+  A.LEAD = 0.06;
+  function sample(ev, dest, t, rate = 1, gain = 1, align = false) {
     const list = buffers[ev]; if (!list || !list.length) return false;
     const s = ctx.createBufferSource(); s.buffer = list[Math.floor(Math.random() * list.length)];
-    s.playbackRate.value = rate * (0.92 + Math.random() * 0.16);
-    const g = ctx.createGain(); g.gain.value = gain; s.connect(g); g.connect(dest); s.start(t);
+    const r = s.playbackRate.value = rate * (0.92 + Math.random() * 0.16);
+    const g = ctx.createGain(); g.gain.value = gain; s.connect(g); g.connect(dest);
+    if (!align) { s.start(t); return true; }
+    const lead = align === true ? A.LEAD : align;
+    let off = peakOf(s.buffer) - lead * r, st = t;
+    if (off < 0) { st = t - off / r; off = 0; }
+    st = Math.max(ctx.currentTime, st);
+    if (off > 0) { g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(gain, st + 0.012); }   // no click when skipping in
+    s.start(st, off);
     return true;
   }
 
@@ -163,26 +188,36 @@
     'swing_dagger', 'swing_spear', 'swing_axe', 'parry', 'hit_plate', 'chop', 'spell', 'glass', 'inv_open', 'coins', 'jingle_rare', 'jingle_win', 'jingle_lose',
     'ui_click', 'equip_cloth', 'equip_metal', 'drop_item', 'laugh', 'goblin'].forEach(n => { MAP[n] = n; });
   const RATE = { crow: 1.4, stone: 0.7 };
+  const IMPACT = new Set(['hit', 'hit_heavy', 'hit_armor', 'hit_plate', 'chop', 'clang', 'arrow_hit', 'arrow_thunk', 'stone', 'parry']);
   const LAYER = { bell: ['bell'], ping: ['ping'], shrine: ['shrine'], death: ['death'], gate: ['rumble'], boom: ['sub'], roar: ['sub'] };
 
   A.play = function (name, pos, v = 1, opts = {}) {
     if (!ready) return;
     const d = out(pos, v, opts.rev === undefined ? 1 : opts.rev), t = ctx.currentTime + (opts.delay || 0);
     let ev = MAP[name]; if (typeof ev === 'function') ev = ev(opts);
-    if (ev) sample(ev, d, t, (RATE[name] || 1) * (opts.rate || 1));
+    // impacts land the instant the blow connects (some recordings have a lead-in before the crack)
+    if (ev) sample(ev, d, t, (RATE[name] || 1) * (opts.rate || 1), 1, IMPACT.has(name) ? 0.012 : false);
     if (name === 'step' && opts.armor) sample('step_armor', d, t, opts.rate || 1, 0.55);
     if (name === 'roll') sample('step', d, t + 0.18, 0.75, 0.9);
     // ---- player actions: several layers so they read clearly over combat
     if (name === 'attack') {          // light combo hit; opts.combo 0..2 gets a little bigger each step
-      const c = opts.combo || 0;
-      sample(opts.swing || 'swing', d, t, 1.05 - c * 0.06, 1.0 + c * 0.15);
-      PROC.whoosh(d, t + 0.04, 0.22 + c * 0.05, 2200, 520, 0.22 + c * 0.06);
-      if (opts.armor) sample('step_armor', d, t, 1.1, 0.35);
+      // every layer peaks at t + LEAD: the moment the blade passes through (the caller times t from the clip)
+      const c = opts.combo || 0, wd = 0.22 + c * 0.05;
+      sample(opts.swing || 'swing', d, t, 1.05 - c * 0.06, 1.45 + c * 0.15, true);
+      sample('equip_cloth', d, Math.max(ctx.currentTime, t - 0.08), 1.25, 0.35);   // the body moving into the cut
+      PROC.whoosh(d, Math.max(ctx.currentTime, t + A.LEAD - wd * 0.35), wd, 2200, 520, 0.22 + c * 0.06);
+      if (opts.armor) sample('step_armor', d, Math.max(ctx.currentTime, t - 0.12), 1.1, 0.35);
     }
     if (name === 'heavyAttack') {     // wind-up rattle, then a deep slow cut
-      if (opts.armor !== false) sample('step_armor', d, Math.max(ctx.currentTime, t - 0.18), 0.9, 0.45);
-      sample(opts.swing || 'swing_heavy', d, t, 0.92, 1.2);
-      PROC.whoosh(d, t + 0.03, 0.42, 1100, 160, 0.42);
+      if (opts.armor !== false) sample('step_armor', d, Math.max(ctx.currentTime, t - 0.22), 0.9, 0.45);
+      sample(opts.swing || 'swing_heavy', d, t, 0.92, 1.6, true);
+      sample('equip_cloth', d, Math.max(ctx.currentTime, t - 0.12), 0.95, 0.45);
+      PROC.whoosh(d, Math.max(ctx.currentTime, t + A.LEAD - 0.42 * 0.35), 0.42, 1100, 160, 0.42);
+    }
+    if (name === 'windup') {          // drawing back for a charged heavy: cloth, gear, a slow rising rush of air
+      sample('equip_cloth', d, t, 0.85, 0.7);
+      if (opts.armor) sample('step_armor', d, t + 0.05, 0.85, 0.5);
+      PROC.whoosh(d, t + 0.05, 0.55, 260, 900, 0.14);
     }
     if (name === 'dodge') {           // cloth + air, body hits the ground, light landing step
       sample('roll', d, t, 1, 1.0);
@@ -194,6 +229,10 @@
     if (name === 'shot') {            // bow twang / crossbow clack / staff fire-cast
       if (opts.kind === 'staff') { sample('spell', d, t, opts.heavy ? 0.8 : 1.1, 0.9); sample('fire', d, t, 1.3, opts.heavy ? 0.9 : 0.5); PROC.whoosh(d, t, opts.heavy ? 0.5 : 0.3, 700, 2400, opts.heavy ? 0.4 : 0.28); }
       else if (opts.kind === 'crossbow') { sample('xbow_shoot', d, t, 1, 1.0); PROC.thud(d, t, 0.3); }
+      else if (opts.kind === 'javelin') { sample('swing_spear', d, t, 0.85, 1.1, true); PROC.whoosh(d, Math.max(ctx.currentTime, t + A.LEAD - 0.16), 0.45, 1400, 300, 0.4); }
+      else if (opts.kind === 'knives') { sample('swing_dagger', d, t, 1.35, 0.9, true); PROC.whoosh(d, Math.max(ctx.currentTime, t + A.LEAD - 0.07), 0.2, 3000, 900, 0.25); }
+      else if (opts.kind === 'wand') { sample('spell', d, t, 1.7, 0.7); sample('glass', d, t + 0.02, 2.2, 0.18); }
+      else if (opts.kind === 'tome') { sample('spell', d, t, opts.heavy ? 0.55 : 0.75, 1.0); sample('whisper', d, t, 1.2, 0.35); }
       else {
         const cb = opts.kind === 'crossbow';
         PROC.whoosh(d, t + 0.01, 0.26, 3200, 1200, cb ? 0.3 : 0.24);

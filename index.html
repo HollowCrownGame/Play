@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -10,7 +10,7 @@
 <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=20261118c">
+<link rel="stylesheet" href="css/style.css?v=20261119e">
 </head>
 <body>
 <div id="game"></div>
@@ -162,6 +162,14 @@
   <div id="tradeBody"></div>
   <button id="tradeClose" class="big">Close</button>
 </div></div>
+<div id="shop" class="overlay hidden" style="z-index:32"><div class="panel wide trade">
+  <h2>Odo's Stall</h2>
+  <p class="small" id="shopAsh"></p>
+  <div class="tabs"><button data-st="buy">Buy</button><button data-st="sell">Sell</button></div>
+  <div id="shopBody"></div>
+  <p id="shopMsg" class="small"></p>
+  <button id="shopClose" class="big">Leave the stall</button>
+</div></div>
 <div id="blind"></div>
 <div id="fade"></div>
 
@@ -180,23 +188,24 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="js/firebase-config.js?v=20261118c"></script>
+<script src="js/firebase-config.js?v=20261119e"></script>
 
-<script src="js/models.js?v=20261118c"></script>
-<script src="js/models2.js?v=20261118c"></script>
-<script src="js/textures.js?v=20261118c"></script>
-<script src="js/sounds.js?v=20261118c"></script>
-<script src="js/story.js?v=20261118c"></script>
-<script src="js/settings.js?v=20261118c"></script>
-<script src="js/audio.js?v=20261118c"></script>
-<script src="js/world.js?v=20261118c"></script>
-<script src="js/entities.js?v=20261118c"></script>
-<script src="js/items.js?v=20261118c"></script>
-<script src="js/net-config.js?v=20261118c"></script>
-<script src="js/net.js?v=20261118c"></script>
-<script src="js/game.js?v=20261118c"></script>
-<script src="js/online.js?v=20261118c"></script>
-<script src="js/access.js?v=20261118c"></script>
-<script src="js/touch.js?v=20261118c"></script>
+<script src="js/models.js?v=20261119e"></script>
+<script src="js/models2.js?v=20261119e"></script>
+<script src="js/textures.js?v=20261119e"></script>
+<script src="js/sounds.js?v=20261119e"></script>
+<script src="js/story.js?v=20261119e"></script>
+<script src="js/settings.js?v=20261119e"></script>
+<script src="js/audio.js?v=20261119e"></script>
+<script src="js/world.js?v=20261119e"></script>
+<script src="js/entities.js?v=20261119e"></script>
+<script src="js/icons.js?v=20261119e"></script>
+<script src="js/items.js?v=20261119e"></script>
+<script src="js/net-config.js?v=20261119e"></script>
+<script src="js/net.js?v=20261119e"></script>
+<script src="js/game.js?v=20261119e"></script>
+<script src="js/online.js?v=20261119e"></script>
+<script src="js/access.js?v=20261119e"></script>
+<script src="js/touch.js?v=20261119e"></script>
 </body>
 </html>

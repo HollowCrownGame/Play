@@ -42,6 +42,9 @@
     tp: { target: 'players', cat: 'Players', label: 'Go to', desc: 'Teleport yourself to a player', one: true },
     bring: { ...P, cat: 'Players', label: 'Bring', desc: 'Teleport players to you' },
     home: { ...P, cat: 'Players', label: 'Send home', desc: 'Send them back to the Drowned Village' },
+    fly: { ...P, cat: 'Players', label: 'Fly', desc: 'Toggle flying: WASD + look to fly, Space up, C down, Shift fast', self: true },
+    noclip: { ...P, cat: 'Players', label: 'No-clip', desc: 'Toggle: walk and fly through walls', self: true },
+    launch: { ...P, cat: 'Players', label: 'Launch', desc: 'Throw players high into the air', params: [num('h', 'force', 18, 5, 60)] },
     whisper: { ...P, cat: 'Players', label: 'Whisper', desc: 'Private message on their screen', params: [txt('text', 'message')] },
     // ---- items & progress
     giveitem: { ...P, cat: 'Items', label: 'Give item', desc: 'Put an item in their satchel', self: true, params: [sel('item', 'item', itemOpts, 'longbow'), sel('r', 'rarity', rarOpts, '4'), num('n', 'amount', 1, 1, 99)] },
@@ -51,6 +54,9 @@
     flask: { ...P, cat: 'Items', label: 'Give flasks', desc: 'Extra Ember Flasks', self: true, params: [num('n', 'amount', 1, 1, 20)] },
     relic: { ...P, cat: 'Items', label: 'Give relic', desc: 'Grant a boss relic', self: true, params: [sel('relic', 'relic', relicOpts, 'oathbrand')] },
     setlevel: { ...P, cat: 'Items', label: 'Set level', desc: 'Set level (stats spread evenly)', self: true, params: [num('n', 'level', 20, 1, 300)] },
+    giveset: { ...P, cat: 'Items', label: 'Give armor set', desc: 'All four pieces of one armor set', self: true, params: [sel('set', 'set', () => [['leather', 'Leather'], ['hunter', 'Hunter'], ['chain', 'Chainmail'], ['bone', 'Bonewrought'], ['plate', 'Ashen Plate']], 'plate'), sel('r', 'rarity', rarOpts, '3')] },
+    giveall: { ...P, cat: 'Items', label: 'Every weapon', desc: 'One of every weapon and shield', self: true, params: [sel('r', 'rarity', rarOpts, '2')] },
+    ammo: { ...P, cat: 'Items', label: 'Give arrows', desc: 'Iron and ember arrows', self: true, params: [num('n', 'amount', 60, 1, 999)] },
     embers: { ...P, cat: 'Items', label: 'Unlock embers', desc: 'Every ember can be travelled to', self: true },
     // ---- moderation
     kick: { ...P, cat: 'Moderation', label: 'Kick', desc: 'Remove from this journey', params: [txt('reason', 'reason')] },
@@ -59,6 +65,12 @@
     tempban: { ...ACC, cat: 'Moderation', label: 'Temp ban', desc: 'Ban the account for a while', params: [num('m', 'min', 60, 1, 5256000), txt('reason', 'reason')] },
     ban: { ...ACC, cat: 'Moderation', label: 'Ban', desc: 'Ban the account forever', danger: true, params: [txt('reason', 'reason')] },
     unban: { ...ACC, cat: 'Moderation', label: 'Unban', desc: 'Lift a ban' },
+    // ---- ranks (admins only: a role can never hand out roles, or it could promote itself)
+    setrole: { ...ACC, cat: 'Ranks', label: 'Give role', desc: 'Give the picked players a role (its commands + name tag). Make roles in the Maker Panel', adminOnly: true,
+      params: [sel('role', 'role', () => { const r = Object.values(AC.roles).map(r => [r.id, r.name]); return r.length ? r : [['', '(no roles yet)']]; }, '')] },
+    removerole: { ...ACC, cat: 'Ranks', label: 'Remove role', desc: 'Take away their role', adminOnly: true },
+    makeadmin: { ...ACC, cat: 'Ranks', label: 'Make admin', desc: 'Every command + the Maker Panel (Maker only)', makerOnly: true, danger: true },
+    removeadmin: { ...ACC, cat: 'Ranks', label: 'Remove admin', desc: 'Take away admin (Maker only)', makerOnly: true },
     // ---- world
     announce: { ...WD, cat: 'World', label: 'Announce', desc: 'Banner + chat message to everyone', params: [txt('text', 'message')] },
     spawn: { ...WD, cat: 'World', label: 'Spawn enemies', desc: 'Summon enemies in front of you', params: [sel('type', 'enemy', enemyOpts, 'hollow'), num('n', 'count', 3, 1, 10)] },
@@ -71,6 +83,9 @@
     peace: { ...WD, cat: 'World', label: 'Freeze enemies', desc: 'Toggle: enemies stop moving and attacking' },
     slowmo: { ...WD, cat: 'World', label: 'Slow motion', desc: 'Toggle: the whole world at 40% speed' },
     fog: { ...WD, cat: 'World', label: 'Fog', desc: 'Fog thickness (1 = normal)', params: [num('mul', 'x', 0.3, 0.1, 4)] },
+    time: { ...WD, cat: 'World', label: 'Set time of day', desc: 'Jump the day/night cycle', params: [sel('tod', 'time', () => [['0.25', 'Dawn'], ['0.5', 'Noon'], ['0.75', 'Dusk'], ['0.0', 'Midnight']], '0.5')] },
+    bloodmoon: { ...WD, cat: 'World', label: 'Blood moon', desc: 'Toggle the blood moon (more, faster, deadlier enemies)' },
+    clearloot: { ...WD, cat: 'World', label: 'Clear loot', desc: 'Remove every dropped item lying on the ground' },
     bell: { ...WD, cat: 'World', label: 'Ring the bell', desc: 'The church bell tolls for everyone' },
     flag: { ...WD, cat: 'World', label: 'Story flag', desc: 'Open gates, skip bosses... (e.g. key, cryptOpen, citadelOpen, gateOpen, dead_sentinel)', params: [txt('k', 'flag', 'key'), sel('v', 'set', () => [['1', 'on'], ['0', 'off']], '1')] },
   };
@@ -81,6 +96,9 @@
   AC.can = (cmd, p = AC.profile, maker = AC.maker) => {
     if (FREE[cmd]) return true;
     if (!p || O.isBanned(p)) return false;
+    const C = CMDS[cmd];
+    if (C && C.makerOnly) return !!maker;
+    if (C && C.adminOnly) return !!(maker || p.admin);
     if (maker || p.admin) return true;
     const r = AC.role(p); return !!(r && (r.commands || []).includes(cmd));
   };
@@ -155,6 +173,17 @@
 
   async function accountCmd(cmd, name, A) {
     const u = await O.findByName(name); if (!u) return sys(`No account named "${name}".`);
+    if (['setrole', 'removerole', 'makeadmin', 'removeadmin'].includes(cmd)) {
+      if (u.uid === AC.makerUid) return sys('The Maker\'s rank cannot be changed.');
+      if (u.admin && !AC.maker && cmd !== 'makeadmin') return sys('Only the Maker can change an admin\'s rank.');
+      try {
+        if (cmd === 'setrole') { const r = AC.roles[A.role]; if (!r) return sys('Create a role in the Maker Panel (Roles tab) first.'); await O.updateUser(u.uid, { role: r.id }); sys(`${u.name} is now ${r.name}.`); }
+        if (cmd === 'removerole') { await O.updateUser(u.uid, { role: '' }); sys(`${u.name} no longer has a role.`); }
+        if (cmd === 'makeadmin') { await O.updateUser(u.uid, { admin: true }); sys(`${u.name} is now an admin.`); }
+        if (cmd === 'removeadmin') { await O.updateUser(u.uid, { admin: false }); sys(`${u.name} is no longer an admin.`); }
+      } catch (e) { sys('The online service refused that (' + (e.code || e.message) + ').'); }
+      return;
+    }
     if (u.uid === AC.makerUid && cmd !== 'unmute' && cmd !== 'unban') return sys('The Maker cannot be punished.');
     if (u.admin && !AC.maker && ['ban', 'tempban', 'mute'].includes(cmd)) return sys('Only the Maker can punish an admin.');
     try {
@@ -203,13 +232,19 @@
       case 'bring': if (mine && me && e.byPid !== Net.pid) { me.pos.set(at.x + (Math.random() - 0.5) * 2, at.y, at.z + (Math.random() - 0.5) * 2); a.message(`${e.by} summoned you.`); } break;
       case 'home': if (mine && me) { a.travel(W.START.clone(), Math.PI); a.message(`${e.by} sent you home.`); } break;
       case 'whisper': if (mine) { a.chatLine(e.by, String(A.text || '').slice(0, 140), 'Whisper', '#b9a0e0'); a.message(`${e.by} whispers: ${String(A.text || '').slice(0, 140)}`); } break;
-      case 'giveitem': if (mine && me && HC.Items.BASES[A.item]) { HC.Items.give(A.item, lim(A.r, 0, 5, 0), lim(A.n, 1, 99, 1)); a.message(`${e.by} gave you something.`); } break;
+      case 'giveitem': if (mine && me && HC.Items.BASES[A.item]) { HC.Items.give(A.item, lim(A.r, 0, 6, 0), lim(A.n, 1, 99, 1)); a.message(`${e.by} gave you something.`); } break;
       case 'kit': if (mine) { HC.Items.kit(); a.message(`${e.by} gave you a starter kit.`); } break;
       case 'clearinv': if (mine) { HC.Items.clearAll(); a.message(`${e.by} emptied your satchel.`); } break;
       case 'ash': if (mine && me) { const n = lim(A.n, 1, 1e6, 1); me.ash += n; a.floatText(`+${n} ashes`); } break;
       case 'flask': if (mine && me) { const n = lim(A.n, 1, 20, 1); me.bonusFlasks = (me.bonusFlasks || 0) + n; a.recalc(); me.flasks = me.maxFlasks; a.message(`${e.by} gave you ${n} Ember Flask${n > 1 ? 's' : ''}.`); } break;
       case 'relic': if (mine && me && HC.RELICS[A.relic]) a.grantRelic(A.relic); break;
       case 'setlevel': if (mine && me) { const n = lim(A.n, 1, 300, 1), pts = n - 1; me.level = n; me.vig = Math.ceil(pts / 3); me.end = Math.floor((pts + 1) / 3); me.str = Math.floor(pts / 3); a.recalc(); me.hp = me.maxHp; a.message(`You are now level ${n}.`); } break;
+      case 'fly': if (mine && me) { me.flying = !me.flying; if (!me.flying) { me.airOff = Math.max(0, me.pos.y - W.heightAt(me.pos.x, me.pos.z)); me.vy = 0; } a.message(me.flying ? 'You can fly. WASD + look, Space up, C down, Shift faster.' : 'You drift back to the ground.'); } break;
+      case 'noclip': if (mine && me) { me.noclip = !me.noclip; a.message(me.noclip ? 'Walls no longer stop you.' : 'You are solid again.'); } break;
+      case 'launch': if (mine && me) { me.vy = lim(A.h, 5, 60, 18); me.airOff = Math.max(me.airOff || 0, 0.1); a.message(e.by + ' launched you!'); } break;
+      case 'giveset': if (mine && me) { ['head', 'chest', 'arms', 'legs'].forEach(s2 => HC.Items.give(A.set + '_' + s2, lim(A.r, 0, 6, 0), 1)); a.message(e.by + ' gave you a full armor set.'); } break;
+      case 'giveall': if (mine && me) { Object.entries(HC.Items.BASES).filter(([, b]) => b.kind === 'weapon' || b.kind === 'shield').forEach(([k]) => HC.Items.give(k, lim(A.r, 0, 6, 0), 1)); HC.Items.give('arrow', 0, 60); a.message(e.by + ' gave you an armory.'); } break;
+      case 'ammo': if (mine && me) { const n = lim(A.n, 1, 999, 60); HC.Items.give('arrow', 0, n); HC.Items.give('firearrow', 0, Math.ceil(n / 3)); } break;
       case 'embers': if (mine && me) { Object.keys(W.SHRINES).forEach(id => me.found.add(id)); a.message('Every ember remembers you. Travel from any shrine.'); } break;
       case 'spawn':
         if (host && HC.ETYPES[A.type] && !HC.ETYPES[A.type].boss) { const n = lim(A.n, 1, 10, 1); for (let i = 0; i < n; i++) {
@@ -219,7 +254,7 @@
           G().event({ t: 'spawn', id: 'adm' + Date.now().toString(36) + i, type: A.type, pos: [x, y, z] });
         } }
         break;
-      case 'drop': if (host) { const it = HC.Items.make(A.item, lim(A.r, 0, 5, 0), lim(A.n, 1, 99, 1)); HC.Items.dropAt(it, front(3), 0); } break;
+      case 'drop': if (host) { const it = HC.Items.make(A.item, lim(A.r, 0, 6, 0), lim(A.n, 1, 99, 1)); HC.Items.dropAt(it, front(3), 0); } break;
       case 'lootrain': if (host) { const n = lim(A.n, 1, 30, 8); for (let i = 0; i < n; i++) { const ang = Math.random() * 6.28, r = 2 + Math.random() * 6; HC.Items.dropAt(HC.Items.random(0.6), new THREE.Vector3(at.x + Math.cos(ang) * r, at.y, at.z + Math.sin(ang) * r), 0); } } break;
       case 'clear': if (host) { const r = lim(A.r, 1, 300, 30); en().forEach(x => { if (x.alive && !x.boss && x.type !== 'watcher' && x.pos.distanceTo(at) < r) x.takeHit(1e9, 1e9, at, e.byPid); }); } break;
       case 'killall': if (host) en().forEach(x => { if (x.alive && !x.boss && x.type !== 'watcher') x.takeHit(1e9, 1e9, x.pos, e.byPid); }); break;
@@ -229,6 +264,9 @@
       case 'slowmo': G().timeScale = G().timeScale === 0.4 ? 1 : 0.4; a.message(G().timeScale < 1 ? 'Time slows...' : 'Time flows again.'); break;
       case 'fog': G().fogMul = lim(A.mul, 0.1, 4, 1); break;
       case 'bell': a.ringBell(); break;
+      case 'time': G().setTime(parseFloat(A.tod) || 0.5); a.message(e.by + ' turned the sky.'); break;
+      case 'bloodmoon': if (host) G().event({ t: 'moon', on: !G().bloodMoon }); break;
+      case 'clearloot': HC.Items.clearLoot(); break;
       case 'flag': if (host && A.k) G().event({ t: 'flag', k: String(A.k).slice(0, 32), v: String(A.v) !== '0', msg: `${e.by} bent fate: ${A.k} ${String(A.v) !== '0' ? 'on' : 'off'}.` }); break;
       case 'kick':
         if (mine) AC.kicked(A.reason === 'banned' ? 'You have been banished by ' + e.by + '.' : `${e.by} removed you from the journey.${A.reason ? ' Reason: ' + A.reason : ''}`);
@@ -416,7 +454,7 @@
       }));
     }
     if (tab === 'roles') {
-      const roles = Object.values(AC.roles), cmds = Object.keys(CMDS);
+      const roles = Object.values(AC.roles), cmds = Object.keys(CMDS).filter(c => !CMDS[c].adminOnly && !CMDS[c].makerOnly);
       body.innerHTML = `<p class="small">A role is a set of commands. Give roles to players on the Players tab. Admins can always use everything.</p>
         <div class="rolenew"><input id="mkRoleName" placeholder="New role name (e.g. Moderator)" maxlength="24"> <input id="mkRoleColor" type="color" value="#7aa0d0"> <button id="mkRoleAdd">Create role</button></div>
         ${roles.map(r => `<div class="role" data-r="${esc(r.id)}"><div class="rhead"><input class="rname" value="${esc(r.name)}" maxlength="24"> <input class="rcolor" type="color" value="${esc(r.color || '#c9a35a')}">
@@ -478,7 +516,7 @@
           : '<p class="small">Start or join a journey to use player and world commands here.</p>'}
         <h3>Any account</h3>
         <input id="cmdAcct" placeholder="Name (for mute / ban)" maxlength="14" value="${esc(acctName)}" list="cmdNames"><datalist id="cmdNames"></datalist>
-        <p class="small">Mute and ban commands use the players picked above, or this name.</p>
+        <p class="small">Mute, ban and rank commands use the players picked above, or this name.</p>
       </div>
       <div class="cmdmain">
         <input id="cmdFind" placeholder="Search commands..." value="${esc(cmdFilter)}">

@@ -345,9 +345,32 @@
     o.position.set(x, (y !== undefined ? y : W.heightAt(x, z)) + dy, z);
     o.rotation.y = ry; o.scale.setScalar(s);
     W.scene.add(o);
-    const box = new THREE.Box3().setFromObject(o), r = box.getSize(new V3()).length() / 2;
-    W.placed.push({ o, r, under: x > 1500 });
+    let box = new THREE.Box3().setFromObject(o);
+    // never float: on a slope, sink the object until its lowest corner touches the lowest ground under its footprint
+    const ground = W.heightAt(x, z);
+    if (x < 1500 && (y === undefined || Math.abs(y - ground) < 0.6)) {
+      const cx = (box.min.x + box.max.x) / 2, cz = (box.min.z + box.max.z) / 2, hx = (box.max.x - box.min.x) * 0.4, hz = (box.max.z - box.min.z) * 0.4;
+      let lo = Infinity;
+      for (const [u, v] of [[0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1], [0, -1], [0, 1], [-1, 0], [1, 0]]) lo = Math.min(lo, W.heightAt(cx + u * hx, cz + v * hz));
+      const gap = box.min.y - lo;
+      if (gap > 0.02) { o.position.y -= gap + 0.03; box = new THREE.Box3().setFromObject(o); }
+    }
+    const r = box.getSize(new V3()).length() / 2;
+    W.placed.push({ o, r, under: x > 1500, box, name });
     return o;
+  };
+  // the nearest spot (spiralling outward) where something of radius r doesn't overlap walls, houses or other props
+  W.clearSpot = function (x, z, r) {
+    if (!W.blocked(x, z, r)) return [x, z];
+    for (let d = 0.5; d < 8; d += 0.5) for (let k = 0; k < 12; k++) {
+      const a = k / 12 * Math.PI * 2, nx = x + Math.cos(a) * d, nz = z + Math.sin(a) * d;
+      if (!W.blocked(nx, nz, r)) return [nx, nz];
+    }
+    return [x, z];
+  };
+  W.footMin = function (x, z, r) {
+    if (r < 0.05) return W.heightAt(x, z);
+    return Math.min(W.heightAt(x, z), W.heightAt(x + r, z), W.heightAt(x - r, z), W.heightAt(x, z + r), W.heightAt(x, z - r));
   };
   // distance culling for placed objects: the fog has swallowed anything beyond ~180 m anyway
   function cullPlaced(cam) {
@@ -366,6 +389,8 @@
     src.updateMatrixWorld(true);
     const meshes = [];
     src.traverse(o => { if (o.isMesh) { const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld); meshes.push([g, o.material]); } });
+    // footprint radius of the asset, so each instance sits on the lowest ground under it instead of floating on slopes
+    const sb = new THREE.Box3().setFromObject(src), footR = Math.max(sb.max.x - sb.min.x, sb.max.z - sb.min.z) * 0.35;
     const by = new Map();
     list.forEach(it => { const k = Math.floor(it.x / CHUNK) + ',' + Math.floor(it.z / CHUNK); if (!by.has(k)) by.set(k, []); by.get(k).push(it); });
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
@@ -376,7 +401,7 @@
         const im = new THREE.InstancedMesh(geo, mat, items.length);
         items.forEach((it, i) => {
           e.set(it.rx || 0, it.ry || 0, it.rz || 0); q.setFromEuler(e);
-          m4.compose(new V3(it.x, it.y !== undefined ? it.y : W.heightAt(it.x, it.z) - (it.sink || 0), it.z), q, new V3(it.s, it.sy || it.s, it.s));
+          m4.compose(new V3(it.x, it.y !== undefined ? it.y : W.footMin(it.x, it.z, footR * it.s) - (it.sink || 0), it.z), q, new V3(it.s, it.sy || it.s, it.s));
           im.setMatrixAt(i, m4);
         });
         im.instanceMatrix.needsUpdate = true;
@@ -531,21 +556,25 @@
   function buildSky(scene) {
     W.skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
-      uniforms: { sunDir: { value: new V3(0.15, 0.32, -0.94).normalize() }, horizon: { value: new THREE.Color(0x1d2027) }, zenith: { value: new THREE.Color(0x030305) }, t: { value: 0 } },
+      uniforms: { sunDir: { value: new V3(0.15, 0.32, -0.94).normalize() }, horizon: { value: new THREE.Color(0x1d2027) }, zenith: { value: new THREE.Color(0x030305) }, t: { value: 0 }, day: { value: 0 }, blood: { value: 0 } },
       vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: `uniform vec3 sunDir, horizon, zenith; uniform float t; varying vec3 vDir;
+      // night: the eclipse (black disc, burning corona, stars); day: a pale sun behind grey haze; blood: a red moon
+      fragmentShader: `uniform vec3 sunDir, horizon, zenith; uniform float t, day, blood; varying vec3 vDir;
         float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
         void main(){
           vec3 d = normalize(vDir); float up = clamp(d.y * 1.6, 0.0, 1.0);
-          vec3 col = mix(horizon, zenith, pow(up, 0.6));
+          vec3 sky = mix(horizon, zenith, pow(up, 0.6));
           float a = acos(clamp(dot(d, sunDir), -1.0, 1.0)), disc = 0.06;
           float corona = exp(-(a - disc) * 24.0) * step(disc, a);
           float rays = 0.6 + 0.4 * sin(atan(d.x - sunDir.x, d.y - sunDir.y) * 18.0 + t * 0.05);
-          col += vec3(1.0, 0.86, 0.62) * corona * 1.6 * rays + vec3(0.55, 0.42, 0.3) * exp(-a * 3.5) * 0.35 * step(disc, a);
-          col *= step(disc, a) * 0.99 + 0.01;
+          vec3 cc = mix(vec3(1.0, 0.86, 0.62), vec3(1.0, 0.16, 0.08), blood);
+          vec3 ecl = sky + cc * corona * 1.6 * rays + mix(vec3(0.55, 0.42, 0.3), vec3(0.6, 0.08, 0.04), blood) * exp(-a * 3.5) * 0.35 * step(disc, a);
+          ecl *= step(disc, a) * 0.99 + 0.01;
+          ecl += vec3(0.35, 0.02, 0.01) * blood * (1.0 - step(disc, a));          // the moon itself glows faintly red
           vec2 sp = floor(d.xz / (d.y + 0.2) * 220.0);
-          col += vec3(0.6) * step(0.9975, h(sp)) * up;
-          gl_FragColor = vec4(col, 1.0);
+          ecl += vec3(0.6) * step(0.9975, h(sp)) * up;
+          vec3 sun = sky + vec3(1.0, 0.96, 0.88) * (smoothstep(disc * 0.9, disc * 0.55, a) * 2.4 + exp(-a * 5.0) * 0.45);
+          gl_FragColor = vec4(mix(ecl, sun, day), 1.0);
         }`,
     });
     W.sky = new THREE.Mesh(new THREE.SphereGeometry(900, 32, 16), W.skyMat);
@@ -697,6 +726,15 @@
       if (kind !== 'house_ruin') { const fwd = new V3(Math.sin(ry), 0, Math.cos(ry)); W.addLight(new V3(x, 2, z).addScaledVector(fwd, hd + 1), 0xff8a3a, 1.4, 9, 0.15); }
     });
     W.place('well', -5, -2, 0.4); W.addCircle(-5, -2, 1.2);
+    // the peddler's market stall, facing the road into the village
+    if (HC.assets.stall) {
+      const sx = 14.5, sz = 3, sry = facing(sx, sz, 0, 9);
+      W.stall = W.place('stall', sx, sz, sry);
+      W.addBox(sx, sz, 1.65, 1.0, sry);
+      const fwd = new V3(Math.sin(sry), 0, Math.cos(sry));
+      W.STALL = { pos: new V3(sx, 0, sz), ry: sry, front: new V3(sx, 0, sz).addScaledVector(fwd, 1.6), back: new V3(sx, 0, sz).addScaledVector(fwd, -0.15) };
+      W.addLight(new V3(sx, W.heightAt(sx, sz) + 2.1, sz).addScaledVector(fwd, 1.0), 0xffa050, 1.8, 10, 0.25);
+    }
     const sv = W.SHRINES.village.pos;
     W.place('shrine', sv.x, sv.z, 0); W.addCircle(sv.x, sv.z, 1.0); W.addLight(sv.clone().setY(1.2), 0xff6a20, 3, 14, 0.35);
     [[4, 40], [-4, 22], [-8, 8], [12, -6], [20, -16], [-20, -14], [-3, 62], [3, 100]].forEach(([x, z], i) => {
@@ -705,7 +743,7 @@
     });
     W.place('statue', -9, 14, facing(-9, 14, 0, 30), 1.1); W.addCircle(-9, 14, 0.9);
     W.place('wagon', -14, 48, 2.2); W.addBox(-14, 48 + 1.1, 1.0, 2.0, 2.2);
-    [[-21, 17], [19, 19], [24, -1], [-13, 26]].forEach(([x, z], i) => { W.place('crate', x, z, i * 0.7, 0.9); W.addCircle(x, z, 0.6); });
+    [[-21, 17], [19, 19], [24, -1], [-13, 26]].forEach(([x, z], i) => { [x, z] = W.clearSpot(x, z, 0.9); W.place('crate', x, z, i * 0.7, 0.9); W.addCircle(x, z, 0.6); });
     // graveyard
     const graves = [], crosses = [];
     for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) {

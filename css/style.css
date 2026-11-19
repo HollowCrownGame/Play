@@ -307,3 +307,18 @@ body.touch #quickbar .qw span:not(.ammo) { display: none; }
   .invcols, .cmdui, .tcols { grid-template-columns: 1fr; }
   #invGrid { grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); }
 }
+
+/* ---------- Odo's stall ---------- */
+.shopgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; margin-top: 8px; }
+.ware { display: flex; align-items: center; gap: 8px; border: 1px solid #3a3226; background: rgba(0, 0, 0, 0.35); padding: 6px 8px; cursor: pointer; }
+.ware:hover { border-color: var(--gold); }
+.ware.poor { opacity: 0.45; cursor: default; }
+.ware .ico { font-size: 22px; width: 28px; text-align: center; }
+.ware .wn { flex: 1; line-height: 1.15; }
+.ware .wn small { display: block; color: var(--dim); font-size: 12px; }
+.ware .pr { font-family: 'Cinzel', serif; font-size: 13px; color: var(--gold); white-space: nowrap; }
+
+/* item icons */
+.ic { display: inline-block; width: 1.6em; height: 1.6em; vertical-align: middle; background-image: var(--icons); background-size: calc(var(--icols) * 100%) calc(var(--irows) * 100%); background-repeat: no-repeat; }
+.islot .ico .ic, .qslot .ic, #quickbar .qs .ic { width: 2.2em; height: 2.2em; }
+.ware .ico .ic { width: 34px; height: 34px; }

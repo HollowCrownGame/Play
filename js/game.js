@@ -206,6 +206,7 @@
     me.wb = w ? w.b : ''; me.wr = w ? w.r : 0;
     me.avatar.setWeapon(w ? v.model : null, w ? v.style : 'sword', v.glow, v.amt);
     me.armorCode = HC.Items.armorCode(); me.avatar.setArmor(HC.Items.armorVisual(me.armorCode));
+    me.shieldCode = HC.Items.shieldCode(); me.avatar.setShield(me.shieldCode || null);
     recalcStats();
   }
   function removePlayer(pid) { const p = G.players.get(pid); if (!p) return; scene.remove(p.avatar.root); G.players.delete(pid); }
@@ -220,6 +221,9 @@
     [[-18, 0], [15, 20], [-8, -16], [21, -2], [-30, 18], [5, 48], [-22, 40]].forEach(([x, z]) => ow('hollow', x, z));
     [[-12, 6], [10, 14], [-30, 4], [25, 6], [-4, 30], [18, -14], [-34, -16]].forEach(([x, z]) => ow('drowned', x, z));
     ow('knight', 36, -31); ow('hollow', 28, -20); ow('hollow', 41, -18);
+    // shield knights guarding the first great door (the crypt gate): they drop their kite shields 70% of the time
+    { const cr = W.crypt.rotation.y, f = new V3(Math.sin(cr), 0, Math.cos(cr)), sd = new V3(f.z, 0, -f.x);
+      [-2.4, 2.4].forEach(o => { const p = W.CRYPT.clone().addScaledVector(f, 5).addScaledVector(sd, o); const k = ow('knight', p.x, p.z); k.doorGuard = true; k.yaw = cr; }); }
     // the old roads
     [[105, -98], [118, -115], [96, -120]].forEach(([x, z]) => ow('hollow', x, z));
     ow('arbalist', 198, 248); ow('arbalist', 212, 262); ow('knight', 190, 270);
@@ -353,6 +357,7 @@
         if (e.k === 'citadelOpen' && e.v) { A.play('gate', W.GATEHOUSE, 1.5); areaBanner('THE CITADEL OPENS'); }
         break;
       case 'msg': message(e.text); break;
+      case 'moon': bloodMoon(!!e.on); break;
       case 'chat': chatLine(e.from, e.text, e.tag, e.color); break;
       case 'adm': if (HC.Access) HC.Access.apply(e); break;
       case 'ping': HC.FX.spawn('pingMark', vec(e.pos), { color: HC.PLAYER_COLORS[e.slot % 4] }); A.play('ping', vec(e.pos), 1.2); break;
@@ -401,7 +406,7 @@
       case 'st': { const p = G.players.get(from); if (p) applyPlayerState(p, m); break; }
       case 'req': {
         const e = m.e;
-        if (e.t === 'hit') { const en = G.enemies.get(e.id); if (en) en.takeHit(e.dmg, e.poise, vec(e.from), from); break; }
+        if (e.t === 'hit') { const en = G.enemies.get(e.id); if (en) { en.takeHit(e.dmg, e.poise, vec(e.from), from); if (e.frost) en.slowT = 4; } break; }
         if (e.t === 'dmg') break;
         event(e); break;
       }
@@ -418,6 +423,8 @@
         if (!G.started) break;
         m.pl.forEach(s => { if (s.id === Net.pid) return; const p = G.players.get(s.id); if (p) applyPlayerState(p, s); });
         m.en.forEach(s => { const e = G.enemies.get(s[0]); if (e) e.applySnap(s); });
+        if (m.tod !== undefined) G.tod = m.tod;
+        if (m.bm !== undefined && !!m.bm !== G.bloodMoon) bloodMoon(!!m.bm);
         if (m.ab !== undefined && m.ab !== G.activeBoss) { if (m.ab && !G.activeBoss) startBossIntro(m.ab); else if (!m.ab && G.activeBoss) endBoss(G.activeBoss, false); }
         break;
       case 'ev': if (G.started) applyEvent(m.e); break;
@@ -426,11 +433,12 @@
   }
   function playerState(p) {
     return { t: 'st', id: p.id, x: +p.pos.x.toFixed(2), y: +p.pos.y.toFixed(2), z: +p.pos.z.toFixed(2), yaw: +p.yaw.toFixed(2), look: +p.look.toFixed(2), act: p.act,
-      at: +(p.actT || p.avatar.actT || 0).toFixed(2), ad: +(p.actDur || p.avatar.actDur || 0).toFixed(2), sp: +(p.avatar.speed).toFixed(1), hp: Math.round(p.hp), mhp: p.maxHp, dn: p.downed ? 1 : 0, ln: p.lantern ? 1 : 0, cb: p.avatar.combo || 0, w: p.wb || '', wr: p.wr || 0, dw: +(p.avatar.draw || 0).toFixed(2), ch: +(p.avatar.charge || 0).toFixed(2), pt: +(p.avatar.pitch || 0).toFixed(2), ar: p.armorCode || '' };
+      at: +(p.actT || p.avatar.actT || 0).toFixed(2), ad: +(p.actDur || p.avatar.actDur || 0).toFixed(2), sp: +(p.avatar.speed).toFixed(1), hp: Math.round(p.hp), mhp: p.maxHp, dn: p.downed ? 1 : 0, ln: p.lantern ? 1 : 0, cb: p.avatar.combo || 0, w: p.wb || '', wr: p.wr || 0, dw: +(p.avatar.draw || 0).toFixed(2), ch: +(p.avatar.charge || 0).toFixed(2), pt: +(p.avatar.pitch || 0).toFixed(2), ar: p.armorCode || '', fl: p.avatar.air ? 1 : 0, sh: p.shieldCode || '' };
   }
   function applyPlayerState(p, s) {
     p.netPos.set(s.x, s.y, s.z); p.netYaw = s.yaw; p.look = s.look; p.hp = s.hp; p.maxHp = s.mhp; p.downed = !!s.dn;
-    if (!p.local) { p.avatar.draw = s.dw || 0; p.avatar.charge = s.ch || 0; p.avatar.pitch = s.pt || 0; if (s.ar !== undefined && s.ar !== p.armorCode) { p.armorCode = s.ar; p.avatar.setArmor(HC.Items.armorVisual(s.ar)); } }
+    if (!p.local) { p.avatar.air = !!s.fl; if (s.sh !== undefined && s.sh !== p.shieldCode) { p.shieldCode = s.sh; p.avatar.setShield(s.sh || null); }
+      p.avatar.draw = s.dw || 0; p.avatar.charge = s.ch || 0; p.avatar.pitch = s.pt || 0; if (s.ar !== undefined && s.ar !== p.armorCode) { p.armorCode = s.ar; p.avatar.setArmor(HC.Items.armorVisual(s.ar)); } }
     if (!p.local && s.w !== undefined && (p.wb !== s.w || p.wr !== s.wr)) {
       p.wb = s.w; p.wr = s.wr; const v = HC.Items.visual(s.w || null, s.wr);
       p.avatar.setWeapon(s.w ? v.model : null, s.w ? v.style : 'sword', v.glow, v.amt);
@@ -442,7 +450,7 @@
       if (!p.local && s.act === 'loose' && p.pos.distanceTo(me.pos) < 40) A.play('bow_shoot', p.pos, 1.0);
       if (!p.local && ['attack', 'heavy', 'roll'].includes(s.act) && p.pos.distanceTo(me.pos) < 40) {
         const st = HC.STYLES[p.avatar.style] || {}, at = st[s.act === 'heavy' ? 'heavy' : 'light'] || {};
-        playActSound(s.act, p.pos, p.avatar.style, s.cb || 0, s.act === 'roll' ? 0 : Math.max(0, (st.ranged ? at.hit : 0.12) - (s.at || 0)));
+        playActSound(s.act, p.pos, p.avatar.style, s.cb || 0, s.act === 'roll' ? 0 : soundDelay(p.avatar.style, at.hit, s.at || 0));
       }
     }
     p.act = s.act; p.avatar.act = s.act; p.avatar.actDur = s.ad; p.avatar.speed = s.sp; p.avatar.combo = s.cb || 0;
@@ -455,7 +463,7 @@
     netT += dt; if (netT < 1 / 15) return; netT = 0;
     if (Net.mode === 'client') { Net.send(playerState(me)); return; }
     const near = e => [...G.players.values()].some(p => p.pos.distanceTo(e.pos) < 160) || e.boss;
-    Net.broadcast({ t: 'snap', pl: [...G.players.values()].map(playerState), en: [...G.enemies.values()].filter(near).map(e => e.snap()), ab: G.activeBoss || null });
+    Net.broadcast({ t: 'snap', pl: [...G.players.values()].map(playerState), en: [...G.enemies.values()].filter(near).map(e => e.snap()), ab: G.activeBoss || null, tod: +G.tod.toFixed(4), bm: G.bloodMoon ? 1 : 0 });
   }
 
   // ================================================================ input
@@ -483,7 +491,7 @@
     if (overlayOpen()) { if (['KeyE', 'Escape', 'Enter'].includes(e.code)) closeOverlay(); e.preventDefault(); return; }
     keys[e.code] = true;
     if (e.code === 'Tab') { e.preventDefault(); toggleLock(); }
-    if (e.code === 'Space') { e.preventDefault(); tryRoll(); }
+    if (e.code === 'Space') { e.preventDefault(); if (!me.flying) tryRoll(); }
     if (e.code === 'KeyQ' && !e.repeat) press('heavy');
     if (e.code === 'KeyJ' && !e.repeat) press('attack');    // keyboard-only attack (Chromebook touchpads)
     if (e.code === 'KeyR') tryDrink();
@@ -534,11 +542,11 @@
   $('btnAgain').onclick = () => location.reload();
   $('mapClose').onclick = () => { show('mapOverlay', false); lock(); };
   document.querySelectorAll('#choice button').forEach(b => b.onclick = () => { show('choice', false); event({ t: 'ending', choice: b.dataset.end, by: me.name }); });
-  function overlayOpen() { return ['reader', 'dialog', 'choice', 'ending', 'shrineMenu', 'settings', 'makerPanel', 'inventory', 'trade'].some(id => !$(id).classList.contains('hidden')) || !$('pause').classList.contains('hidden'); }
+  function overlayOpen() { return ['reader', 'dialog', 'choice', 'ending', 'shrineMenu', 'settings', 'makerPanel', 'inventory', 'trade', 'shop'].some(id => !$(id).classList.contains('hidden')) || !$('pause').classList.contains('hidden'); }
   function closeOverlay() {
     if (!$('ending').classList.contains('hidden') || !$('choice').classList.contains('hidden')) return;
     if (!$('dialog').classList.contains('hidden') && G.dialogQueue && G.dialogQueue.length) { nextDialog(); return; }
-    ['reader', 'dialog', 'pause', 'shrineMenu', 'settings', 'inventory', 'trade'].forEach(id => show(id, false));
+    ['reader', 'dialog', 'pause', 'shrineMenu', 'settings', 'inventory', 'trade', 'shop'].forEach(id => show(id, false));
     lock();
   }
 
@@ -602,6 +610,7 @@
   function startCharge() {
     if (!canAct() || busy() || me.st <= 0) return;
     startAct('charge', 99); me.charge = 0; me.atk = HC.Items.weaponStats('heavy'); me.avatar.atk = me.atk;
+    A.play('windup', null, 0.9, { armor: !!(style().armor) });
     if (me.lock) faceTarget(); else me.yaw = me.camYaw;
   }
   function chargeRelease() {
@@ -626,13 +635,20 @@
     startAct(kind === 'heavy' ? 'heavy' : 'attack', a.dur); me.atk = a; me.avatar.atk = a;
     if (opts.fromCharge) { me.avatar.lastAct = 'charge'; }
     if (me.avatar.style === 'crossbow') A.play('xbow_reload', null, 0.8, { delay: a.hit + 0.35 });
-    // your own swings play un-positioned at full volume (the camera sits metres behind you); clips peak ~0.2 s in
-    playActSound(kind === 'heavy' ? 'heavy' : 'attack', null, a.style, me.combo, Math.max(0, a.ranged ? a.hit : a.hit - 0.2));
+    // your own swings play un-positioned at full volume (the camera sits metres behind you)
+    playActSound(kind === 'heavy' ? 'heavy' : 'attack', null, a.style, me.combo, soundDelay(a.style, a.hit));
+  }
+  // seconds until a swing sound must start so its peak (A.LEAD into it) lands on the impact frame at `hit`.
+  // Guns, bows and spells go off at the release frame itself.
+  function soundDelay(style, hit, already = 0) {
+    const S = HC.STYLES[style] || {}, lead = S.ranged && !S.thrown ? 0 : A.LEAD;
+    return Math.max(0, (hit || 0) - lead - already);
   }
   // attack / heavy / roll sounds. pos = null -> your own character (full volume), else a teammate in 3D
   function playActSound(act, pos, style, combo = 0, delay = 0) {
     const S = HC.STYLES[style] || {}, armor = !!S.armor, v = pos ? 1.2 : 1.0, rev = pos ? 0.8 : 0.35;
-    const swing = { dagger: 'swing_dagger', spear: 'swing_spear', axe: 'swing_axe', hammer: 'swing_axe', scythe: 'swing_spear' }[style];
+    const swing = { dagger: 'swing_dagger', spear: 'swing_spear', axe: 'swing_axe', hammer: 'swing_axe', scythe: 'swing_spear', katana: 'swing', flail: 'swing_heavy', warpick: 'swing_axe', sickle: 'swing_dagger', fists: 'swing_dagger', rapier: 'swing_dagger', halberd: 'swing_spear', greataxe: 'swing_axe' }[style];
+    if (S.chain && act !== 'roll') A.play('equip_metal', pos, 0.45, { delay: Math.max(0, delay - 0.1), rate: 1.3 });   // the flail's chain rattles
     if (act === 'roll') A.play('dodge', pos, v, { armor, rev });
     else if (S.ranged) A.play('shot', pos, v, { delay, kind: style, heavy: act === 'heavy', rev });
     else if (act === 'heavy' || armor) A.play('heavyAttack', pos, v, { delay, armor, rev, swing });   // greatswords and hammers always swing heavy
@@ -651,10 +667,10 @@
   function tryDrink() { if (!me || busy() || me.downed || me.flasks <= 0) return; me.flasks--; startAct('drink', 1.15); me.healed = false; me.drinkFn = null; }
   // potions from the satchel: same drinking animation, the item's own effect
   function drinkItem(fn) { if (!me || busy() || me.downed || me.dead || me.frozen) return false; startAct('drink', 1.15); me.healed = false; me.drinkFn = fn; return true; }
-  function throwBomb(dmg) {
+  function throwBomb(dmg, kind = 'fire') {
     if (!me || busy() || me.downed || me.dead || me.frozen) return false;
     me.yaw = me.lock ? Math.atan2(me.lock.pos.x - me.pos.x, me.lock.pos.z - me.pos.z) : me.camYaw;
-    startAct('throw', 0.9); me.bombDmg = dmg; me.thrown = false; return true;
+    startAct('throw', 0.9); me.bombDmg = dmg; me.bombKind = kind; me.thrown = false; return true;
   }
   function faceTarget() { const t = me.lock; if (t) me.yaw = Math.atan2(t.pos.x - me.pos.x, t.pos.z - me.pos.z); }
   const moveInput = () => {
@@ -684,15 +700,20 @@
     const hp = e.pos.clone().setY(e.pos.y + Math.min(e.cfg.h * 0.6, 2.2));
     const metal = ['knight', 'corvane', 'king', 'sentinel'].includes(e.type);
     if (o.fire || o.perk === 'fire') { dmg *= 1.2; HC.FX.spawn('ember', hp); }
+    const S = HC.STYLES[me.avatar.style] || {};
+    if (!o.ranged && S.pierce && metal) dmg *= S.pierce;                         // war pick: through the armor
+    if (!o.ranged && S.bleed) { dmg *= 1.1; HC.FX.spawn('blood', hp); }
+    if (o.frost) { HC.FX.spawn('ring', e.pos.clone().setY(e.pos.y + 0.1), { color: 0x9ad8ff, r: 1.4, life: 0.5 }); if (Net.isHost()) e.slowT = 4; }
+    if (o.perk === 'unholy') { HC.FX.spawn('spark', hp); me.hp = Math.min(me.maxHp, me.hp + dmg * 0.04); }
     HC.FX.spawn(e.type === 'sentinel' ? 'stone' : metal ? 'spark' : 'blood', hp);
     const pierce = o.proj === 'arrow' || o.proj === 'bolt';
-    if (e.type !== 'watcher') A.play(e.type === 'sentinel' ? 'stone' : metal ? 'hit_armor' : pierce ? 'arrow_hit' : o.heavy ? 'hit_heavy' : 'hit', hp, o.ranged ? 0.8 : 0.9);
+    if (e.type !== 'watcher') A.play(e.type === 'sentinel' ? 'stone' : metal ? 'hit_armor' : pierce ? 'arrow_hit' : (S.punch && !o.ranged) ? 'hurt' : o.heavy ? 'hit_heavy' : 'hit', hp, o.ranged ? 0.8 : 0.9);
     if (metal && e.type !== 'sentinel') A.play('hit_plate', hp, 0.5);
     if (me.avatar.style === 'axe' && !o.ranged && !metal) A.play('chop', hp, 0.45);
     const steal = (o.perk === 'leech' ? 0.06 : 0) + (me.leech || 0);
     if (steal && e.type !== 'watcher') me.hp = Math.min(me.maxHp, me.hp + dmg * steal);
     if (Net.isHost()) e.takeHit(dmg, poise, me.pos, me.id);
-    else { Net.send({ t: 'req', e: { t: 'hit', id: e.id, dmg, poise, from: [me.pos.x, me.pos.y, me.pos.z] } }); if (e.type !== 'watcher') e.rig.flash = 0.25; }
+    else { Net.send({ t: 'req', e: { t: 'hit', id: e.id, dmg, poise, frost: o.frost ? 1 : 0, from: [me.pos.x, me.pos.y, me.pos.z] } }); if (e.type !== 'watcher') e.rig.flash = 0.25; }
   }
   function performHit() {
     const a = me.atk, ring = me.relics.has('ring') && me.act === 'heavy';
@@ -723,8 +744,9 @@
     const av = me.avatar, to = aimPoint(), n = a.n || 1;
     let from = me.pos.clone().add(new V3(Math.sin(me.yaw) * 0.55, 1.45, Math.cos(me.yaw) * 0.55));
     if (av.style === 'bow' && av.weapon) from = av.weapon.localToWorld(new V3(0, 0.02, 0.12));            // off the arrow rest
-    else if (av.style === 'staff' && av.rig.b.hand_l) from = av.rig.palm('hand_l', new THREE.Matrix4().copy(av.rig.model.matrixWorld).invert()).applyMatrix4(av.rig.model.matrixWorld).add(to.clone().sub(me.pos).setY(0).normalize().multiplyScalar(0.25));   // from the open palm
+    else if (['staff', 'wand', 'tome'].includes(av.style) && av.rig.b.hand_l) from = av.rig.palm('hand_l', new THREE.Matrix4().copy(av.rig.model.matrixWorld).invert()).applyMatrix4(av.rig.model.matrixWorld).add(to.clone().sub(me.pos).setY(0).normalize().multiplyScalar(0.25));   // from the open palm
     else if (av.style === 'crossbow' && av.weapon) from = av.weapon.localToWorld(new V3(0, 0.05, 0.35));
+    else if (HC.STYLES[av.style] && HC.STYLES[av.style].thrown && av.rig.b.hand_r) from = av.rig.b.hand_r.getWorldPosition(new V3());
     for (let i = 0; i < n; i++) {
       const dir = to.clone().sub(from); const dist = dir.length(); dir.normalize();
       if (n > 1) dir.applyAxisAngle(new V3(0, 1, 0), (i - (n - 1) / 2) * 0.09);
@@ -732,27 +754,34 @@
       if (a.grav) vel.y += a.grav * (dist / a.speed) * 0.5;          // lob slightly so the arrow lands on the aim point
       const fire = ammo === 'firearrow' || a.proj === 'orb' || a.proj === 'wave' || a.perk === 'fire';
       const dmg = a.dmg * (0.9 + Math.random() * 0.2) * dmgMul() * (ammo === 'firearrow' ? 1.4 : 1);
-      HC.Proj.spawn(a.proj, from, vel, dmg, true, { friendly: true, poise: a.poise, pierce: !!a.pierce, grav: a.grav || 0, perk: a.perk, fire, life: 3, size: a.size });
+      HC.Proj.spawn(a.proj, from, vel, dmg, true, { friendly: true, poise: a.poise, pierce: !!a.pierce, grav: a.grav || 0, perk: a.perk, fire: fire && !a.frost, frost: !!a.frost, life: 3, size: a.size });
       event({ t: 'pshot', type: a.proj, pos: from.toArray(), vel: vel.toArray(), grav: a.grav || 0, size: a.size || 1, by: Net.pid });
     }
     if (a.proj === 'wave' || a.proj === 'orb') HC.FX.spawn('ember', from);
+    if (a.proj === 'pale') HC.FX.spawn('ring', from, { color: 0x9ad8ff, r: 0.6, life: 0.3 });
+    if (a.proj === 'void') HC.FX.spawn('spark', from);
   }
-  G.projHit = (e, p) => hitEnemy(e, p.dmg, p.poise || 10, { fire: p.fire, perk: p.perk, ranged: true, proj: p.type });
+  G.projHit = (e, p) => hitEnemy(e, p.dmg, p.poise || 10, { fire: p.fire, perk: p.perk, ranged: true, proj: p.type, frost: p.frost });
   G.bombBurst = function (p) {
-    G.fx('ring', p.pos, { color: 0xff6a20, r: 4, life: 0.6 }); G.fx('ember', p.pos); G.sound('boom', p.pos, 0.9); G.sound('glass', p.pos, 0.8);
-    G.enemies.forEach(e => { if (e.alive && e.root.visible && e.pos.distanceTo(p.pos) < 3.8 + e.cfg.r) hitEnemy(e, p.dmg * dmgMul(), 60, { fire: true, ranged: true }); });
+    const kind = p.kind || 'fire';
+    G.fx('ring', p.pos, { color: kind === 'frost' ? 0x9ad8ff : kind === 'holy' ? 0xfff4d0 : 0xff6a20, r: 4, life: 0.6 }); G.fx(kind === 'fire' ? 'ember' : 'spark', p.pos); G.sound(kind === 'fire' ? 'boom' : 'spell', p.pos, 0.9); G.sound('glass', p.pos, 0.8);
+    G.enemies.forEach(e => { if (e.alive && e.root.visible && e.pos.distanceTo(p.pos) < 3.8 + e.cfg.r) hitEnemy(e, p.dmg * dmgMul(), 60, { fire: kind === 'fire', frost: kind === 'frost', ranged: true }); });
   };
   function receiveDamage(dmg, src, kind) {
     if (!me || me.downed || me.dead || G.ended) return;
     if (me.god && kind !== 'admin') return;
     if (me.iframes > 0 && kind !== 'watcher' && kind !== 'admin') return;
-    if (kind !== 'admin') dmg *= me.defMul || 1;
+    if (kind !== 'admin') dmg *= (me.defMul || 1) * (G.bloodMoon ? 1.4 : 1);   // the blood moon hits 40% harder
     const toSrc = Math.atan2(src.x - me.pos.x, src.z - me.pos.z);
-    const blocking = me.act === 'block' && Math.abs(HC.angDiff(me.yaw, toSrc)) < 1.4 && kind !== 'watcher' && kind !== 'fire' && kind !== 'admin';
+    const sh = me.avatar.hasShield ? HC.Items.shieldStats() : { absorb: 0.12, stab: 1.6, arc: 1.4 };
+    const blocking = me.act === 'block' && Math.abs(HC.angDiff(me.yaw, toSrc)) < sh.arc && kind !== 'watcher' && kind !== 'fire' && kind !== 'admin';
     if (blocking && me.st > 0) {
-      me.st -= dmg * (me.relics.has('bellshard') ? 0.8 : 1.6); me.stDelay = 1;
+      me.st -= dmg * sh.stab * (me.relics.has('bellshard') ? 0.5 : 1); me.stDelay = 1;   // a shield makes blocking far cheaper
       A.play('parry', me.pos, 1); HC.FX.spawn('spark', me.pos.clone().setY(me.pos.y + 1.2));
-      dmg *= 0.12;
+      dmg *= sh.absorb;
+      // a spiked targe bites back at whatever struck it
+      const shb = HC.Items.shield(), spk = shb && HC.Items.BASES[shb.b].spikes;
+      if (spk) { let best = null, bd = 3; G.enemies.forEach(en => { const d = en.alive ? en.pos.distanceTo(src) : 9; if (d < bd) { bd = d; best = en; } }); if (best) hitEnemy(best, spk * (1 + (shb.r || 0) * 0.3), 10, {}); }
       if (me.st <= 0) { startAct('hurt', 0.9); message('Your guard breaks.'); }
     } else {
       startAct('hurt', kind === 'watcher' ? 1.2 : 0.4); A.play('hurt', me.pos, 0.9);
@@ -951,13 +980,13 @@
   }
   G.npcRigs = [];
   function buildNPCs() {
-    const mk = (id, asset, pos, faceTo, idle, talkClip, sitDrop = 0) => {
-      const rig = new HC.Rig(asset);
+    const mk = (id, asset, pos, faceTo, idle, talkClip, sitDrop = 0, o = {}) => {
+      const rig = new HC.Rig(asset, { look: o.look });
       rig.play(idle, { at: Math.random() });
       rig.root.position.set(pos.x, W.heightAt(pos.x, pos.z) - sitDrop, pos.z); rig.root.rotation.y = Math.atan2(faceTo.x - pos.x, faceTo.z - pos.z);
       scene.add(rig.root); W.addCircle(pos.x, pos.z, 0.6);
       rig.idle = idle; rig.talk = talkClip; rig.npc = id;
-      addInter({ pos: pos.clone(), r: 2.8, label: `Speak with ${HC.NPCS[id].name}`, act: () => { talkNPC(id); rig.play(talkClip); rig.talkT = 6; } });
+      addInter({ pos: o.talkAt || pos.clone(), r: o.r || 2.8, label: o.label || `Speak with ${HC.NPCS[id].name}`, act: () => { if (o.act) o.act(); else talkNPC(id); rig.play(talkClip); rig.talkT = 6; } });
       if (id === 'hollis') rig.attach('sword', 'hand_r', { mode: 'grip' });
       G.npcRigs.push(rig);
       return rig;
@@ -966,6 +995,13 @@
     mk('hermit', 'npc_hermit', new V3(W.HERMIT.x + 1, 0, W.HERMIT.z - 2), W.SHRINES.hermit.pos, 'Sitting_Idle_Loop', 'Sitting_Talking_Loop');
     mk('maud', 'npc_maud', new V3(W.SHRINES.rim.pos.x + 2.5, 0, W.SHRINES.rim.pos.z - 2), W.CRATER, 'Idle_Loop', 'Idle_Talking_Loop');
     mk('hollis', 'npc_hollis', new V3(W.SHRINES.gate.pos.x - 3, 0, W.SHRINES.gate.pos.z - 2), new V3(0, 0, -200), 'Sword_Idle', 'Idle_Talking_Loop');
+    // Odo the peddler, behind the counter of his stall in the village square
+    if (W.STALL) {
+      HC.NPCS.merchant = { name: 'Odo the Peddler', lines: ['Steel, salves and stranger things. Ashes only. The dead don\'t haggle, and neither do I.'] };
+      mk('merchant', 'npc_hermit', W.STALL.back.clone(), W.STALL.front.clone(), 'Idle_Loop', 'Idle_Talking_Loop', 0, {
+        look: { scale: 1.0, cloth: 0x3a2a48 }, talkAt: W.STALL.front.clone(), r: 3.2, label: 'Trade with Odo the Peddler',
+        act: () => { A.play('coins', null, 0.6); HC.Items.openShop(); } });
+    }
   }
   function updateNPCs(dt) {
     G.npcRigs.forEach(r => {
@@ -1206,8 +1242,18 @@
       if (composer) { composer.setPixelRatio ? composer.setPixelRatio(s) : 0; composer.setSize(innerWidth, innerHeight); }
     }
   }
+  // solo journeys pause completely while any menu, note, dialogue, map or the satchel is open: no time passes,
+  // nothing animates, every sound stops. (A co-op world is shared, so it keeps running.)
+  G.isPaused = () => Net.mode === 'solo' && G.started && !G.ended && (overlayOpen() || !$('mapOverlay').classList.contains('hidden'));
   function loop(now) {
     requestAnimationFrame(loop);
+    const paused = G.isPaused();
+    A.setPaused(paused);
+    if (paused) {
+      if (!G.frozenFrame) { G.frozenFrame = true; if (composer) composer.render(); else renderer.render(scene, camera); }
+      last = now; return;
+    }
+    G.frozenFrame = false;
     const raw = (now - last) / 1000;
     if (raw > 0 && raw < 0.5) dynRes(raw);
     let dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -1219,7 +1265,8 @@
   }
   function update(dt) {
     if (!me) return;
-    controlLocal(dt); tickEffects(dt); HC.Items.update(dt, G.t);
+    controlLocal(dt); tickEffects(dt); HC.Items.update(dt, G.t); clockTick(dt);
+    const haste = G.bloodMoon ? 1.2 : 1;   // blood moon: the dead move 20% faster
     G.players.forEach(p => {
       if (!p.local) { const prev = p.pos.clone(); p.pos.lerp(p.netPos, 1 - Math.exp(-12 * dt)); p.vel.copy(p.pos).sub(prev).divideScalar(Math.max(dt, 1e-3)); p.yaw += HC.angDiff(p.yaw, p.netYaw) * Math.min(1, dt * 12); p.avatar.actT += dt; }
       p.zone = W.zoneAt(p.pos.x, p.pos.z); p.avatar.pos.copy(p.pos); p.avatar.yaw = p.yaw; p.avatar.update(dt);
@@ -1229,7 +1276,8 @@
     G.enemies.forEach(e => {
       if (host) {
         const near = e.boss || e.type === 'watcher' || ai.some(p => p.pos.distanceTo(e.pos) < 90);
-        if (near && (!G.cine || e.boss) && !G.peace) e.hostUpdate(dt, ai);
+        if (e.slowT > 0) e.slowT -= dt;                                      // frost: half speed while it lasts
+        if (near && (!G.cine || e.boss) && !G.peace) e.hostUpdate(dt * haste * (e.slowT > 0 ? 0.5 : 1), ai);
       } else e.clientUpdate(dt);
       const d = e.pos.distanceTo(camera.position);
       const range = (me.pos.x > 1500 ? 60 : (me.zone === 'forest' ? 60 : 85)) * (W.viewMul || 1);   // beyond this the fog has swallowed them
@@ -1237,7 +1285,7 @@
         // animation LOD: distant enemies update their skeleton every 2nd / 3rd frame
         const skip = SV().animLod && !e.boss ? (d > 45 ? 3 : d > 22 ? 2 : 1) : 1;
         e.lodAcc = (e.lodAcc || 0) + dt; e.lodN = ((e.lodN || 0) + 1) % skip;
-        if (e.lodN === 0) { e.animate(e.lodAcc); e.lodAcc = 0; } else { e.root.position.copy(e.pos); e.root.rotation.y = e.yaw; }
+        if (e.lodN === 0) { e.animate(e.lodAcc * haste); e.lodAcc = 0; } else { e.root.position.copy(e.pos); e.root.rotation.y = e.yaw; }
       } else e.root.visible = false;
     });
     HC.Proj.update(dt, ai);
@@ -1260,10 +1308,30 @@
     for (const id in W.SHRINES) if (!me.found.has(id) && W.SHRINES[id].pos && W.SHRINES[id].pos.distanceTo(me.pos) < 12) { me.found.add(id); message(`Ember discovered: ${W.SHRINES[id].name}`); }
   }
 
-  function controlLocal(dt) {
+  // walking through walls (noclip) and flying (admin commands)
+  const mv = (dx, dz, r) => { if (me.noclip) { me.pos.x += dx; me.pos.z += dz; } else W.move(me.pos, dx, dz, r); };
+  function flyControl(dt) {
+    const locked = overlayOpen() || document.activeElement === $('chatIn');
+    const cp = Math.cos(me.camPitch), f = new V3(Math.sin(me.camYaw) * cp, -Math.sin(me.camPitch), Math.cos(me.camYaw) * cp), r = new V3(-Math.cos(me.camYaw), 0, Math.sin(me.camYaw));
+    const i = locked ? new V3() : moveInput(), v = f.multiplyScalar(i.z).add(r.multiplyScalar(i.x));
+    if (!locked && keys.Space) v.y += 1;
+    if (!locked && (keys.KeyC || keys.ControlLeft)) v.y -= 1;
+    const prev = me.pos.clone();
+    if (v.lengthSq() > 0) {
+      v.normalize().multiplyScalar(9 * (keys.ShiftLeft ? 2.6 : 1) * (me.speedMul || 1) * dt);
+      if (me.noclip) me.pos.add(v); else { W.move(me.pos, v.x, v.z, 0.4); me.pos.y += v.y; }
+      me.yaw += HC.angDiff(me.yaw, Math.atan2(v.x, v.z) || me.yaw) * Math.min(1, dt * 8);
+    }
+    me.pos.y = Math.max(me.pos.y, W.heightAt(me.pos.x, me.pos.z));
+    me.vel.copy(me.pos).sub(prev).divideScalar(Math.max(dt, 1e-3));
+    me.avatar.speed = 0; me.avatar.air = true; me.look = me.camYaw;
+    me.st = me.maxSt;
+    me.avatar.setHeadVisible(!me.fp);
+  }  function controlLocal(dt) {
     me.actT += dt; me.avatar.actT = me.actT; me.iframes = Math.max(0, me.iframes - dt);
     me.zone = W.zoneAt(me.pos.x, me.pos.z);
     if (G.cine) { G.cine.t += dt; if (G.cine.t > G.cine.dur) G.cine = null; me.avatar.speed = 0; return; }
+    if (me.flying) { flyControl(dt); return; }
     const c = C(); let speed = 0, dir = moveDir();
     const inputLocked = overlayOpen() || document.activeElement === $('chatIn') || !$('mapOverlay').classList.contains('hidden');
     if (inputLocked) dir.set(0, 0, 0);
@@ -1272,15 +1340,15 @@
     const prev = me.pos.clone();
     if (me.act === 'downed') {
       if (!me.dead) { me.bleed -= dt; if (me.bleed <= 0 && Net.mode !== 'solo') die(false); }
-      if (dir.lengthSq()) W.move(me.pos, dir.x * 0.5 * dt, dir.z * 0.5 * dt, 0.4);
+      if (dir.lengthSq()) mv(dir.x * 0.5 * dt, dir.z * 0.5 * dt, 0.4);
     } else if (me.act === 'roll') {
       const p = me.actT / me.actDur, sp = 8.5 * (1 - p * 0.75);
-      W.move(me.pos, me.rollDir.x * sp * dt, me.rollDir.z * sp * dt, 0.4);
+      mv(me.rollDir.x * sp * dt, me.rollDir.z * sp * dt, 0.4);
       if (me.actT >= me.actDur) startAct('idle', 0);
     } else if (me.act === 'attack' || me.act === 'heavy') {
       if (me.lock && me.actT < me.atk.hit * 0.7) faceTarget();
       if (!me.hitDone && me.actT >= me.atk.hit) { me.hitDone = true; performHit(); }
-      if (me.actT > me.atk.hit * 0.6 && me.actT < me.atk.hit) W.move(me.pos, Math.sin(me.yaw) * 2.2 * dt, Math.cos(me.yaw) * 2.2 * dt, 0.4);
+      if (me.actT > me.atk.hit * 0.6 && me.actT < me.atk.hit) mv(Math.sin(me.yaw) * 2.2 * dt, Math.cos(me.yaw) * 2.2 * dt, 0.4);
       if (me.actT >= me.actDur) { const q = me.queued; me.queued = null; me.lastAtkEnd = G.t; startAct('idle', 0); if (q) tryAttack(q); }
     } else if (me.act === 'drink') {
       speed = c.speed * 0.35;
@@ -1296,7 +1364,7 @@
         const from = me.pos.clone().add(new V3(Math.sin(me.yaw) * 0.4, 1.7, Math.cos(me.yaw) * 0.4)), to = aimPoint();
         const flat = Math.min(16, Math.max(3, Math.hypot(to.x - from.x, to.z - from.z))), t = flat / 13;
         const vel = new V3(Math.sin(me.yaw) * 13, (to.y - from.y + 0.5 * 12 * t * t) / t, Math.cos(me.yaw) * 13);
-        HC.Proj.spawn('bomb', from, vel, me.bombDmg || 70, true, { friendly: true, grav: 12, life: 3, fire: true });
+        HC.Proj.spawn('bomb', from, vel, me.bombDmg || 70, true, { friendly: true, grav: 12, life: 3, fire: me.bombKind === 'fire', frost: me.bombKind === 'frost', kind: me.bombKind });
         event({ t: 'pshot', type: 'bomb', pos: from.toArray(), vel: vel.toArray(), grav: 12, by: Net.pid });
         A.play('heavyAttack', null, 0.7, { armor: false, rev: 0.3 });
       }
@@ -1330,13 +1398,14 @@
       // touch players sprint by pushing the stick: stop at 25 stamina so there is always enough left to attack or roll
       const sprint = keys.ShiftLeft && dir.lengthSq() > 0 && me.st > (G.touch ? 25 : 0) && !blocking;
       speed = c.speed * (blocking ? 0.45 : sprint ? 1.65 : 1) * (me.speedMul || 1) * (me.spdMul || 1);
+      if (HC.TWO_HAND[me.avatar.style]) speed *= sprint ? 0.94 : 0.88;   // a big two-handed weapon slows your walk a little
       if (sprint) { me.st -= dt * 15; me.stDelay = 0.5; }
       if (blocking) { if (me.act !== 'block') startAct('block', 0); } else if (me.act === 'block') startAct('idle', 0);
       if (me.lock && (!me.lock.alive || me.lock.pos.distanceTo(me.pos) > 34)) me.lock = null;
     }
     if (W.heightAt(me.pos.x, me.pos.z) < W.waterAt(me.pos.x, me.pos.z) - 0.15) speed *= 0.75;
     if (speed > 0 && dir.lengthSq() > 0) {
-      W.move(me.pos, dir.x * speed * dt, dir.z * speed * dt, 0.4);
+      mv(dir.x * speed * dt, dir.z * speed * dt, 0.4);
       const want = me.lock && !keys.ShiftLeft ? Math.atan2(me.lock.pos.x - me.pos.x, me.lock.pos.z - me.pos.z) : Math.atan2(dir.x, dir.z);
       me.yaw += HC.angDiff(me.yaw, want) * Math.min(1, dt * 12);
       // footsteps land when a foot actually plants in the walk/run animation (distance timer only as a fallback)
@@ -1353,7 +1422,13 @@
     me.avatar.speed = speed;
     me.avatar.draw = me.draw || 0; me.avatar.charge = me.charge || 0;
     me.avatar.pitch = Math.max(-0.9, Math.min(0.9, -me.camPitch + 0.12));
-    me.pos.y = W.heightAt(me.pos.x, me.pos.z);
+    // launched into the air (admin command): simple ballistic hop back down to the ground
+    if (me.vy || me.airOff > 0) {
+      me.vy -= 24 * dt; me.airOff = (me.airOff || 0) + me.vy * dt;
+      if (me.airOff <= 0) { me.airOff = 0; if (me.vy < -10) { A.play('hit_heavy', me.pos, 0.5); G.shakeA = 0.4; } me.vy = 0; }
+    }
+    me.pos.y = W.heightAt(me.pos.x, me.pos.z) + (me.airOff || 0);
+    me.avatar.air = (me.airOff || 0) > 0.05;
     me.vel.copy(me.pos).sub(prev).divideScalar(Math.max(dt, 1e-3));
     me.look = me.camYaw;
     if (!zoneShown[me.zone] && me.zone !== 'wilds') { zoneShown[me.zone] = true; areaBanner(W.areaName(me.zone).toUpperCase()); }
@@ -1396,13 +1471,66 @@
       show('lockon'); $('lockon').style.left = ((p.x + 1) / 2 * innerWidth) + 'px'; $('lockon').style.top = ((1 - p.y) / 2 * innerHeight) + 'px';
     } else show('lockon', false);
   }
+  // ================================================================ day / night and the blood moon
+  // G.tod: 0..1 (0 = midnight, 0.5 = noon). The host keeps the clock and shares it; each player may pick a fixed look.
+  G.tod = 0.3; G.bloodMoon = false;
+  const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const daylight = tod => sstep(0.2, 0.3, tod) * (1 - sstep(0.7, 0.8, tod));
+  G.isNight = () => daylight(G.tod) < 0.05;
+  function clockTick(dt) {
+    if (!Net.isHost()) return;
+    G.tod = (G.tod + dt / (60 * (SV().dayLen || 16))) % 1;
+    const night = G.isNight();
+    // each nightfall: a 2% chance that the moon rises red
+    if (night && G.wasNight === false && !G.bloodMoon && Math.random() < 0.02) event({ t: 'moon', on: true });
+    if (!night && G.bloodMoon) event({ t: 'moon', on: false });
+    G.wasNight = night;
+  }
+  function bloodMoon(on) {
+    if (G.bloodMoon === on) return;
+    G.bloodMoon = on;
+    if (on) {
+      areaBanner('THE BLOOD MOON RISES'); A.play('roar', null, 0.8); A.play('laugh', null, 0.6, { delay: 2 });
+      message('Blood moon: more of the dead walk, they move faster, and they hit 40% harder.');
+      // 30% more of the dead, rising beside the others (they crumble to ash at dawn)
+      if (Net.isHost()) {
+        let n = 0;
+        G.enemies.forEach(en => {
+          if (!en.alive || en.boss || en.type === 'watcher' || en.summoned || en.pos.x > 1500 || Math.random() > 0.3) return;
+          const a = Math.random() * 6.28, x = en.pos.x + Math.cos(a) * 3, z = en.pos.z + Math.sin(a) * 3;
+          event({ t: 'spawn', id: 'BM' + (n++) + '_' + Date.now().toString(36), type: en.type, pos: [x, W.heightAt(x, z), z] });
+        });
+      }
+    } else {
+      message('The blood moon sets. The extra dead crumble to ash.');
+      G.enemies.forEach((en, id) => { if (/^BM/.test(id)) { en.remove(); G.enemies.delete(id); } });
+    }
+  }
+  G.setTime = tod => { G.tod = ((tod % 1) + 1) % 1; G.wasNight = G.isNight(); };
+  const NIGHT_SKY = [0x1d2027, 0x030305], DAY_SKY = [0x8c939c, 0x4d5d74], BLOOD_SKY = [0x34100c, 0x080203];
+  const _c1 = new THREE.Color(), _c2 = new THREE.Color(), _c3 = new THREE.Color();
   function envUpdate(dt) {
-    const e = ENV[me.zone] || ENV.village, k = 1 - Math.exp(-dt * 1.2);
-    let d = e.d * (G.fogMul || 1); if (me.zone === 'kingArena' && G.flags.dead_king) d *= 0.6;
+    const e = ENV[me.zone] || ENV.village, k = 1 - Math.exp(-dt * 1.2), out = !W.isUnder(me.zone);
+    const look = SV().look || 'cycle';
+    const dayReal = daylight(G.tod);
+    const dv = out ? (look === 'day' ? 1 : look === 'night' ? 0 : look === 'dusk' ? 0.42 : dayReal) : 0;
+    const bl = out && G.bloodMoon ? 1 - dv : 0;
+    G.dayVis = dv; G.bloodVis = bl;
+    let d = e.d * (G.fogMul || 1) * (1 - 0.8 * dv); if (me.zone === 'kingArena' && G.flags.dead_king) d *= 0.6;
     scene.fog.density += (d - scene.fog.density) * k;
-    tmpC.setHex(e.fog); scene.fog.color.lerp(tmpC, k); scene.background.copy(scene.fog.color);
-    hemi.intensity += (e.hemi - hemi.intensity) * k; moon.intensity += (e.moon - moon.intensity) * k;
-    W.skyMat.uniforms.horizon.value.lerp(tmpC.setHex(me.zone === 'forest' ? 0x14171a : 0x1d2027), k);
+    const sunset = out && look !== 'day' && look !== 'night' ? Math.max(0, 1 - Math.abs(dv - 0.5) * 2.4) : 0;   // dawn and dusk glow amber
+    tmpC.setHex(e.fog).lerp(_c1.setHex(me.zone === 'forest' ? 0x4a544e : 0x6a727c), dv).lerp(_c3.setHex(0x9a6448), sunset * 0.55).lerp(_c2.setHex(0x2c0c0a), bl * 0.8);
+    scene.fog.color.lerp(tmpC, k); scene.background.copy(scene.fog.color);
+    const hemiT = e.hemi + (0.9 - e.hemi) * dv + 0.12 * bl, moonT = e.moon + (1.35 - e.moon) * dv;
+    hemi.intensity += (hemiT - hemi.intensity) * k; moon.intensity += (moonT - moon.intensity) * k;
+    moon.color.lerp(_c3.setHex(0x9aa4c0).lerp(_c1.setHex(0xfff0dc), dv).lerp(_c2.setHex(0xff4a30), bl), k);
+    hemi.color.lerp(_c3.setHex(0x59617a).lerp(_c1.setHex(0xc4cad4), dv).lerp(_c2.setHex(0x7a2a22), bl), k);
+    const sky = W.skyMat.uniforms;
+    sky.horizon.value.lerp(_c1.setHex(me.zone === 'forest' && dv < 0.5 ? 0x14171a : NIGHT_SKY[0]).lerp(_c2.setHex(DAY_SKY[0]), dv).lerp(_c2.setHex(0xc47a4c), sunset * 0.7).lerp(_c3.setHex(BLOOD_SKY[0]), bl), k);
+    sky.zenith.value.lerp(_c1.setHex(NIGHT_SKY[1]).lerp(_c2.setHex(DAY_SKY[1]), dv).lerp(_c3.setHex(BLOOD_SKY[1]), bl), k);
+    sky.day.value += (dv - sky.day.value) * k; sky.blood.value += (bl - sky.blood.value) * k;
+    const ex = 1.15 * (SV().brightness || 1);
+    if (finalPass) finalPass.uniforms.exposure.value = ex; else renderer.toneMappingExposure = ex;
   }
   function lightsUpdate() {
     const cands = [];
@@ -1442,6 +1570,9 @@
   HC.debug = { tp: (x, z) => { me.pos.set(x, W.heightAt(x, z), z); }, flags: () => G.flags, me: () => me, G, cam: () => camera, W,
     // dev only (local test server): render one frame, optionally from a given camera, and upload it as /shot
     snap(name, pos, look) {
+      // a hidden page has a 0-sized canvas: render at a fixed size instead
+      const sz = renderer.getSize(new THREE.Vector2());
+      if (sz.x < 300 || sz.y < 200) { renderer.setSize(1100, 800, false); if (composer) composer.setSize(1100, 800); camera.aspect = 1100 / 800; camera.updateProjectionMatrix(); }
       if (pos) { camera.position.copy(pos); camera.lookAt(look); camera.updateMatrixWorld(); }
       if (composer) composer.render(); else renderer.render(scene, camera);
       return fetch('/shot?name=' + encodeURIComponent(name), { method: 'POST', body: renderer.domElement.toDataURL('image/png') }).then(r => r.status);
