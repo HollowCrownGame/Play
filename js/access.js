@@ -497,11 +497,71 @@
   // ================================================================ gate
   const fmtMin = m => m >= 1440 ? (m / 1440).toFixed(m % 1440 ? 1 : 0) + ' days' : m >= 60 ? (m / 60).toFixed(m % 60 ? 1 : 0) + ' hours' : Math.round(m) + ' minutes';
   const fmtLeft = t => t >= O.PERM ? 'ever' : fmtMin(Math.max(1, Math.ceil((t - Date.now()) / 60000)));
+  // ================================================================ account transfer codes
+  // Move your account to another device: make a code here, type it there; this device is then signed out.
+  const codeErr = e => {
+    const c = e && e.code;
+    if (['format', 'expired', 'self', 'gone', 'hasAccount'].includes(c)) return e.message;     // our own, already friendly
+    if (c === 'permission-denied') return 'The server refused that. The Maker needs to publish the latest firestore.rules (SETUP.md).';
+    if (c === 'unavailable') return 'Could not reach the online service. Check your connection.';
+    return 'Could not do that (' + (c || (e && e.message) || 'error') + ').';
+  };
+  async function moveHere(code, msgEl, replaceOwn) {
+    try {
+      msgEl.textContent = 'Bringing your account across...';
+      if (HC.Items) HC.Items.loaded = false;                 // don't let this device's old satchel save over the new one
+      const name = await O.claimTransfer(code, replaceOwn);
+      msgEl.textContent = `Welcome back, ${name}. Loading your account...`;
+      setTimeout(() => location.reload(), 700);
+    } catch (e) { if (HC.Items) HC.Items.loaded = true; msgEl.textContent = codeErr(e); }
+  }
+  $('lnkLogin').onclick = e => { e.preventDefault(); show('gateLogin'); $('inLogin').focus(); };
+  $('btnLogin').onclick = () => moveHere($('inLogin').value, $('gateErr'), false);
+  $('inLogin').onkeydown = e => { if (e.key === 'Enter') $('btnLogin').click(); };
+  let xfer = null, xferT = null;
+  function renderAccount() {
+    const p = AC.profile;
+    $('acctWho').textContent = p ? `${p.name || 'No name yet'}${tagOf(p) ? ' - ' + tagOf(p).tag : ''}${O.mode === 'local' ? ' (local test mode)' : ''}` : '';
+    const live = xfer && xfer.expires > Date.now();
+    $('acctCode').value = live ? O.fmtCode(xfer.code) : '';
+    show('acctCopy', live); show('acctCancel', live);
+    $('acctMake').textContent = live ? 'Make a different code' : 'Make a transfer code';
+    clearInterval(xferT);
+    if (live) {
+      const tick = () => {
+        const s = Math.max(0, Math.round((xfer.expires - Date.now()) / 1000));
+        $('acctTimer').textContent = s ? `Type it on your other device within ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}. This device will sign out when it's used.` : 'The code ran out. Make a new one.';
+        if (!s) { xfer = null; clearInterval(xferT); renderAccount(); }
+      };
+      tick(); xferT = setInterval(tick, 1000);
+    } else $('acctTimer').textContent = '';
+  }
+  $('btnAccount').onclick = () => { renderAccount(); $('acctMsg').textContent = ''; show('account'); };
+  $('acctClose').onclick = () => { clearInterval(xferT); show('account', false); };
+  $('acctCopy').onclick = async () => { try { await navigator.clipboard.writeText(O.fmtCode(xfer.code)); $('acctMsg').textContent = 'Copied.'; } catch (e) { $('acctMsg').textContent = 'Copy it by hand.'; } };
+  $('acctMake').onclick = async () => {
+    $('acctMsg').textContent = 'Making your code...';
+    try { if (xfer) O.cancelTransfer(xfer.code); xfer = await O.makeTransferCode(); $('acctMsg').textContent = ''; renderAccount(); }
+    catch (e) { $('acctMsg').textContent = codeErr(e); }
+  };
+  $('acctCancel').onclick = () => { if (xfer) O.cancelTransfer(xfer.code); xfer = null; renderAccount(); $('acctMsg').textContent = 'Code cancelled.'; };
+  $('acctGo').onclick = () => {
+    if (AC.profile && !confirm(`This device's account (${AC.profile.name || 'no name'}) will be replaced by the one you are bringing here and deleted. Continue?`)) return;
+    if (AC.maker) { $('acctMsg').textContent = 'This device holds the Maker account - move it away first (make a code here) before bringing another account in.'; return; }
+    moveHere($('acctLogin').value, $('acctMsg'), true);
+  };
   function stepTo(id) { ['gateCode', 'gateName', 'gateBan', 'gateKick', 'gateWait'].forEach(s => show(s, s === id)); show('gateLead', id === 'gateCode' || id === 'gateName'); }
   function gateErr(t) { $('gateErr').textContent = t || ''; }
 
   function route(p) {
+    const had = AC.profile;
     AC.profile = p;
+    // this account was just moved to another device with a transfer code: this device is signed out
+    if (!p && had && !AC.kickedOut) {
+      show('account', false);
+      if (G() && G().started) return AC.kicked('Your account was moved to another device. This device is signed out.');
+      setTimeout(() => gateErr('Your account was moved to another device. This device is signed out.'), 50);
+    }
     AC.maker = !!p && p.uid === AC.makerUid;
     renderBadges();
     if (AC.kickedOut) return;

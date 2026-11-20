@@ -13,6 +13,8 @@
   O.validName = n => /^[A-Za-z0-9 _-]{3,14}$/.test(n) && n.trim() === n;
   const newUser = (uid, o) => Object.assign({ uid, name: '', nameLower: '', admin: false, role: '', via: '', banUntil: 0, banReason: '', bannedBy: '', mutedUntil: 0, created: Date.now() }, o);
   O.isBanned = u => !!u && u.banUntil > Date.now();
+  const CODE_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';     // no 0/O or 1/I to mix up
+  const randCode = n => { const a = new Uint32Array(n); crypto.getRandomValues(a); return Array.from(a, x => CODE_ALPHA[x % CODE_ALPHA.length]).join(''); };
 
   // ------------------------------------------------------------------ Firebase backend
   function firebaseBackend(cfg) {
@@ -56,6 +58,12 @@
       del: p => doc(p).delete(),
       add: async (c, v) => (await col(c).add(v)).id,
       watchQuery(c, field, val, cb) { return col(c).where(field, '==', val).onSnapshot(q => cb(q.docs.map(data)), e => console.warn('watch', c, e)); },
+      // several writes that succeed or fail together: [{ op: 'set' | 'update' | 'del', p: 'col/id', v }]
+      async batch(ops) {
+        const b = db.batch();
+        ops.forEach(o => { if (o.op === 'set') b.set(doc(o.p), o.v); else if (o.op === 'update') b.update(doc(o.p), o.v); else b.delete(doc(o.p)); });
+        await b.commit();
+      },
     };
     return B;
   }
@@ -111,6 +119,11 @@
       async del(p) { const d = load(); const [c, id] = at(d, p); delete c[id]; save(d); fire(); },
       async add(c, v) { const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8); await this.set(c + '/' + id, v); return id; },
       watchQuery(c, field, val, cb) { const f = async () => cb((await this.list(c)).filter(x => x[field] === val)); listeners.add(f); f(); return () => listeners.delete(f); },
+      async batch(ops) {
+        const d = load();
+        ops.forEach(o => { const [c, id] = at(d, o.p); if (o.op === 'set') c[id] = JSON.parse(JSON.stringify(o.v)); else if (o.op === 'update') { if (!c[id]) throw err('missing'); Object.assign(c[id], o.v); } else delete c[id]; });
+        save(d); fire();
+      },
     };
   }
 
@@ -180,6 +193,48 @@
   };
   O.setCodeUses = (code, maxUses) => B.update('codes/' + code, { maxUses: Math.max(0, maxUses | 0) });
   O.deleteCode = code => B.del('codes/' + code);
+
+  // ------------------------------------------------------------------ account transfer codes (move your account to a new device)
+  // Device A makes a one-time code (transfers/{CODE}: { from, at, expires } - lasts 10 minutes). Device B enters it:
+  // B gets an exact copy of A's account (name, rank, role, ban/mute state, satchel, the Maker seat) under B's own id,
+  // and A's account is removed, which signs device A out. firestore.rules checks every step of this.
+  const TRANSFER_MIN = 10;
+  O.TRANSFER_MIN = TRANSFER_MIN;
+  O.fmtCode = c => c ? c.slice(0, 4) + '-' + c.slice(4) : '';
+  O.makeTransferCode = async function () {
+    const code = randCode(8), now = Date.now();
+    await B.set('transfers/' + code, { from: O.uid, at: now, expires: now + TRANSFER_MIN * 60000 });
+    return { code, expires: now + TRANSFER_MIN * 60000 };
+  };
+  O.cancelTransfer = code => B.del('transfers/' + code).catch(() => { });
+  // replaceOwn: this device already has an account - it is deleted first (the caller has asked the player)
+  O.claimTransfer = async function (raw, replaceOwn) {
+    const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length !== 8) throw err('format', 'A transfer code is 8 letters and numbers.');
+    const t = await B.get('transfers/' + code);
+    if (!t || t.expires < Date.now()) throw err('expired', 'That code is wrong or has run out. Make a new one on your other device.');
+    if (t.from === O.uid) throw err('self', 'That code is for this device already - type it on your other device.');
+    const src = await B.get('users/' + t.from); if (!src) throw err('gone', 'That account no longer exists.');
+    const mine = await O.self();
+    if (mine) {
+      if (!replaceOwn) throw err('hasAccount', 'This device already has an account.');
+      const ops = [{ op: 'del', p: 'users/' + O.uid }]; if (mine.nameLower) ops.unshift({ op: 'del', p: 'names/' + mine.nameLower });
+      await B.batch(ops);
+    }
+    const copy = {}; ['name', 'nameLower', 'admin', 'role', 'banUntil', 'banReason', 'bannedBy', 'mutedUntil', 'created'].forEach(k => { copy[k] = src[k] !== undefined ? src[k] : ''; });
+    // 1) this device becomes the account (and takes its name)
+    await B.batch([{ op: 'set', p: 'users/' + O.uid, v: Object.assign(copy, { uid: O.uid, via: 'transfer:' + code }) },
+      ...(src.nameLower ? [{ op: 'set', p: 'names/' + src.nameLower, v: { uid: O.uid } }] : [])]);
+    // 2) bring the satchel across
+    const inv = await B.get('inv/' + t.from).catch(() => null);
+    if (inv) { delete inv.id; await B.set('inv/' + O.uid, inv); }
+    // 3) the old device's account is closed (signing it out), the Maker seat follows, the code is used up
+    const maker = await B.get('meta/maker');
+    await B.batch([{ op: 'del', p: 'users/' + t.from }, ...(inv ? [{ op: 'del', p: 'inv/' + t.from }] : []),
+      ...(maker && maker.uid === t.from ? [{ op: 'set', p: 'meta/maker', v: { uid: O.uid, at: Date.now() } }] : []),
+      { op: 'del', p: 'transfers/' + code }]);
+    return src.name;
+  };
 
   // ------------------------------------------------------------------ public worlds (anyone can drop in)
   // lobbies/{code}: { code, host (uid), hostName, players, max, pvp, at }. The host refreshes it every 15 s;

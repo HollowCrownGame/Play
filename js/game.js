@@ -82,7 +82,7 @@
     hemi = new THREE.HemisphereLight(0x59617a, 0x1a1612, 0.5); scene.add(hemi);
     moon = new THREE.DirectionalLight(0x9aa4c0, 0.45); moon.position.set(30, 60, -80); scene.add(moon);
     scene.add(new THREE.AmbientLight(0x202024, 0.25));
-    for (let i = 0; i < (SV().lights || 6); i++) { const l = new THREE.PointLight(0xffa050, 0, 10, 2); scene.add(l); lightPool.push(l); }
+    for (let i = 0; i < (SV().lights !== undefined ? +SV().lights : 6); i++) { const l = new THREE.PointLight(0xffa050, 0, 10, 2); scene.add(l); lightPool.push(l); }
     camera.fov = SV().fov;
     DR.scale = SV().renderScale === 'auto' ? Math.min(window.devicePixelRatio, HC.phoneScreen ? 1.5 : 1.0) : parseFloat(SV().renderScale);
     renderer.setPixelRatio(DR.scale);
@@ -1389,13 +1389,14 @@
   function dynRes(rawDt) {
     FPS.acc += rawDt; FPS.n++;
     if (FPS.acc > 0.5) { if (SV().showFps) $('fps').textContent = `${Math.round(FPS.n / FPS.acc)} fps · ${Math.round(DR.scale * 100)}%`; FPS.acc = 0; FPS.n = 0; }
+    autoTune(rawDt);
     if (SV().renderScale !== 'auto') return;
     DR.acc += rawDt; DR.n++;
     if (DR.acc < 2) return;
     const avg = DR.acc / DR.n; DR.acc = 0; DR.n = 0;
     let s = DR.scale;
     // phones have 2-3x pixel-dense screens: let automatic resolution climb to 2x there, 1.25x elsewhere
-    const top = Math.min(window.devicePixelRatio, HC.phoneScreen ? 2 : 1.25), bottom = HC.phoneScreen ? 0.9 : 0.55;
+    const top = Math.min(window.devicePixelRatio, HC.phoneScreen ? 2 : 1.25), bottom = Math.min(HC.phoneScreen ? 0.9 : 0.55, G.drMin || 9);
     if (avg > 1 / 40 && s > bottom) s = Math.max(bottom, s - 0.1);
     else if (avg < 1 / 55 && s < top) s = Math.min(top, s + 0.1);
     if (Math.abs(s - DR.scale) > 0.01) {
@@ -1403,12 +1404,57 @@
       if (composer) { composer.setPixelRatio ? composer.setPixelRatio(s) : 0; composer.setSize(innerWidth, innerHeight); }
     }
   }
+  // ---- auto-optimize: when the game keeps stuttering, lower one setting at a time (saved for next time too)
+  const AT = { acc: 0, n: 0, bad: 0, cool: 20 };
+  const RS_STEPS = ['1.25', '1', '0.85', '0.7', '0.55', '0.5', '0.4', '0.33', '0.25'];
+  function autoTune(rawDt) {
+    if (!SV().autoTune || !G.started || G.cine) return;
+    AT.cool -= rawDt; AT.acc += rawDt; AT.n++;
+    if (AT.acc < 3) return;
+    const fps = AT.n / AT.acc; AT.acc = 0; AT.n = 0;
+    const want = Math.min(24, (+SV().fpsCap || 60) * 0.8);
+    AT.bad = fps < want ? AT.bad + 1 : 0;
+    if (AT.bad < 2 || AT.cool > 0) return;
+    AT.bad = 0; AT.cool = 8;
+    const v = SV(), said = what => { HC.Settings.save(); message(`Auto-optimize: ${what} to keep the game smooth (${Math.round(fps)} fps). Change it any time in Settings.`); };
+    // 1. resolution
+    if (v.renderScale === 'auto') { const m = Math.max(0.3, (G.drMin || Math.min(DR.scale, 0.55)) - 0.1); if (m < (G.drMin || 1) - 0.01 && DR.scale > 0.31) { G.drMin = m; DR.scale = Math.max(m, DR.scale - 0.15); renderer.setPixelRatio(DR.scale); renderer.setSize(innerWidth, innerHeight); if (composer) composer.setSize(innerWidth, innerHeight); return said('lowered the resolution'); } }
+    else { const i = RS_STEPS.indexOf(String(v.renderScale)); if (i >= 0 && i < RS_STEPS.length - 2) { v.renderScale = RS_STEPS[i + 1]; v.preset = 'custom'; DR.scale = parseFloat(v.renderScale); renderer.setPixelRatio(DR.scale); renderer.setSize(innerWidth, innerHeight); if (composer) composer.setSize(innerWidth, innerHeight); return said(`lowered the resolution to ${Math.round(DR.scale * 100)}%`); } }
+    // 2. falling ash
+    if (v.particles !== false) { v.particles = false; v.preset = 'custom'; if (W.ash) W.ash.visible = false; return said('turned off the falling ash'); }
+    // 3. view distance
+    if ((v.viewDist || 1) > 0.35) { v.viewDist = Math.max(0.3, +(v.viewDist - 0.15).toFixed(2)); v.preset = 'custom'; W.viewMul = v.viewDist; return said('shortened the view distance'); }
+    // 4. enemy detail
+    if (v.crowd !== 'near') { v.crowd = v.crowd === 'far' ? 'normal' : 'near'; v.preset = 'custom'; return said('reduced far-away enemy detail'); }
+    // 5. glow / post effects
+    if (composer) {
+      composer = null; finalPass = null; v.bloom = false; v.grain = false; v.preset = 'custom';
+      renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.outputEncoding = THREE.sRGBEncoding;
+      scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); });
+      return said('turned off glow effects');
+    }
+    // 6. dynamic lights
+    const lit = lightPool.filter(l => l.visible);
+    if (lit.length > 1) { lit.slice(Math.max(1, Math.floor(lit.length / 2))).forEach(l => { l.visible = false; l.intensity = 0; }); lightPool = lightPool.filter(l => l.visible); v.lights = lightPool.length; v.preset = 'custom'; return said('used fewer lights'); }
+    // 7. a steady 30 fps instead of an uneven one
+    if (!(+v.fpsCap) || +v.fpsCap > 30) { v.fpsCap = 30; v.preset = 'custom'; return said('limited the frame rate to 30'); }
+    // 8. the heaviest switches need a restart: set them for next time
+    if (v.textures !== 'flat' || v.lighting !== 'simple' || v.terrain !== 'potato' || v.vegetation !== 'off') {
+      Object.assign(v, { textures: 'flat', lighting: 'simple', terrain: 'potato', vegetation: 'off', preset: 'custom' });
+      return said('switched to the lightest textures and terrain from your next start');
+    }
+  }
+  G.autoTune = AT; G.autoTuneTick = autoTune;
   // solo journeys pause completely while any menu, note, dialogue, map or the satchel is open: no time passes,
   // nothing animates, every sound stops. (A co-op world is shared, so it keeps running.)
   // (the Character screen doesn't pause: your character keeps breathing so you can see the changes)
   G.isPaused = () => Net.mode === 'solo' && G.started && !G.ended && ((overlayOpen() && !G.customizing) || !$('mapOverlay').classList.contains('hidden'));
   function loop(now) {
     requestAnimationFrame(loop);
+    // frame rate limit (Settings): skip this screen refresh if the next frame isn't due yet
+    const cap = +SV().fpsCap || 0;
+    if (cap > 0 && now - (G.lastFrameAt || 0) < 1000 / cap - 2) return;
+    G.lastFrameAt = now;
     const paused = G.isPaused();
     A.setPaused(paused);
     if (paused) {
@@ -1447,10 +1493,11 @@
         if (near && (!G.cine || e.boss) && !G.peace) e.hostUpdate(dt * haste * (e.slowT > 0 ? 0.5 : 1), ai);
       } else e.clientUpdate(dt);
       const d = e.pos.distanceTo(camera.position);
-      const range = (me.pos.x > 1500 ? 60 : (me.zone === 'forest' ? 60 : 85)) * (W.viewMul || 1);   // beyond this the fog has swallowed them
+      const crowd = (HC.Settings.CROWD || {})[SV().crowd] || 1;                                      // "Enemy detail" setting
+      const range = (me.pos.x > 1500 ? 60 : (me.zone === 'forest' ? 60 : 85)) * (W.viewMul || 1) * Math.min(1, crowd + 0.25);   // beyond this the fog has swallowed them
       if (d < range || (e.boss && G.activeBoss === e.type)) {
-        // animation LOD: distant enemies update their skeleton every 2nd / 3rd frame
-        const skip = SV().animLod && !e.boss ? (d > 45 ? 3 : d > 22 ? 2 : 1) : 1;
+        // animation LOD: distant enemies update their skeleton every 2nd / 3rd (/ 4th) frame
+        const skip = SV().animLod && !e.boss ? (d > 60 * crowd ? 4 : d > 45 * crowd ? 3 : d > 22 * crowd ? 2 : 1) : 1;
         e.lodAcc = (e.lodAcc || 0) + dt; e.lodN = ((e.lodN || 0) + 1) % skip;
         if (e.lodN === 0) { e.animate(e.lodAcc * haste); e.lodAcc = 0; } else { e.root.position.copy(e.pos); e.root.rotation.y = e.yaw; }
       } else e.root.visible = false;

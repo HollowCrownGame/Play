@@ -10,7 +10,7 @@
 <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=20261120g">
+<link rel="stylesheet" href="css/style.css?v=20261120j">
 </head>
 <body>
 <div id="game"></div>
@@ -25,6 +25,9 @@
       <p id="gateLead" class="sub"></p>
       <div id="gateCode" class="hidden">
         <div class="row"><input id="inAccess" maxlength="32" placeholder="Access code" autocomplete="off" spellcheck="false"><button id="btnAccess" class="big">Enter</button></div>
+        <p class="small">Already play on another device? <a href="#" id="lnkLogin">Move your account here with a transfer code</a></p>
+        <div id="gateLogin" class="hidden"><div class="row"><input id="inLogin" maxlength="12" placeholder="Transfer code (e.g. K7QX-2M9T)" autocomplete="off" spellcheck="false"><button id="btnLogin" class="big">Move here</button></div>
+          <p class="small">On your other device: title screen &rarr; Account &rarr; Make a transfer code.</p></div>
       </div>
       <div id="gateName" class="hidden">
         <div class="row"><input id="inUser" maxlength="14" placeholder="Your name" autocomplete="off" spellcheck="false"><button id="btnUser" class="big">Take this name</button></div>
@@ -37,6 +40,23 @@
     <p id="gateMode" class="hint"></p>
   </div>
 </div>
+
+<!-- ============ ACCOUNT (account codes: the same account on several devices) ============ -->
+<div id="account" class="overlay hidden" style="z-index:45"><div class="panel">
+  <h2>Your account</h2>
+  <p id="acctWho" class="sub"></p>
+  <h3>Move your account to another device</h3>
+  <p class="small">Make a code here, then type it on your other phone, tablet or computer. Your account (name, satchel, rank)
+    moves there and <b>this device is signed out</b>. The code works once and runs out after 10 minutes.</p>
+  <div class="row"><input id="acctCode" readonly value="" placeholder="No code yet"><button id="acctCopy">Copy</button></div>
+  <p id="acctTimer" class="small"></p>
+  <div class="row"><button id="acctMake" class="big">Make a transfer code</button><button id="acctCancel" class="hidden">Cancel code</button></div>
+  <h3>Bring an account to this device</h3>
+  <p class="small">Got a code from your other device? Enter it here. This device's current account is replaced.</p>
+  <div class="row"><input id="acctLogin" maxlength="12" placeholder="Transfer code" autocomplete="off" spellcheck="false"><button id="acctGo">Move here</button></div>
+  <p id="acctMsg" class="small"></p>
+  <button id="acctClose" class="big">Close</button>
+</div></div>
 
 <!-- ============ TITLE ============ -->
 <div id="title" class="screen hidden">
@@ -54,7 +74,7 @@
         <input id="inCode" maxlength="6" placeholder="CODE">
         <button id="btnJoin">Join</button>
       </div>
-      <div class="row"><button id="btnBag">Satchel</button><button id="btnTrade">Trade</button><button id="btnSettings">Settings</button><button id="btnCustom">Character</button><button id="btnMaker" class="maker hidden">Maker Panel</button></div>
+      <div class="row"><button id="btnBag">Satchel</button><button id="btnTrade">Trade</button><button id="btnSettings">Settings</button><button id="btnCustom">Character</button><button id="btnAccount">Account</button><button id="btnMaker" class="maker hidden">Maker Panel</button></div>
       <p id="netStatus" class="small"></p>
     </div>
     <p class="hint">Headphones recommended. Co-op connects friends over the internet (up to 4 players); Public World puts you with whoever else is playing (up to 6). Your satchel and trades are saved to your account.</p>
@@ -197,26 +217,26 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="js/firebase-config.js?v=20261120g"></script>
+<script src="js/firebase-config.js?v=20261120j"></script>
 
-<script src="js/models.js?v=20261120g"></script>
-<script src="js/models2.js?v=20261120g"></script>
-<script src="js/models3.js?v=20261120g"></script>
-<script src="js/textures.js?v=20261120g"></script>
-<script src="js/sounds.js?v=20261120g"></script>
-<script src="js/story.js?v=20261120g"></script>
-<script src="js/settings.js?v=20261120g"></script>
-<script src="js/audio.js?v=20261120g"></script>
-<script src="js/world.js?v=20261120g"></script>
-<script src="js/entities.js?v=20261120g"></script>
-<script src="js/car.js?v=20261120g"></script>
-<script src="js/icons.js?v=20261120g"></script>
-<script src="js/items.js?v=20261120g"></script>
-<script src="js/net-config.js?v=20261120g"></script>
-<script src="js/net.js?v=20261120g"></script>
-<script src="js/game.js?v=20261120g"></script>
-<script src="js/online.js?v=20261120g"></script>
-<script src="js/access.js?v=20261120g"></script>
-<script src="js/touch.js?v=20261120g"></script>
+<script src="js/models.js?v=20261120j"></script>
+<script src="js/models2.js?v=20261120j"></script>
+<script src="js/models3.js?v=20261120j"></script>
+<script src="js/textures.js?v=20261120j"></script>
+<script src="js/sounds.js?v=20261120j"></script>
+<script src="js/story.js?v=20261120j"></script>
+<script src="js/settings.js?v=20261120j"></script>
+<script src="js/audio.js?v=20261120j"></script>
+<script src="js/world.js?v=20261120j"></script>
+<script src="js/entities.js?v=20261120j"></script>
+<script src="js/car.js?v=20261120j"></script>
+<script src="js/icons.js?v=20261120j"></script>
+<script src="js/items.js?v=20261120j"></script>
+<script src="js/net-config.js?v=20261120j"></script>
+<script src="js/net.js?v=20261120j"></script>
+<script src="js/game.js?v=20261120j"></script>
+<script src="js/online.js?v=20261120j"></script>
+<script src="js/access.js?v=20261120j"></script>
+<script src="js/touch.js?v=20261120j"></script>
 </body>
 </html>
