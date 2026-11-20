@@ -423,6 +423,29 @@
   HC.STYLES.car = Object.assign({}, HC.STYLES.fists, { noHold: true });
   // no weapon at all: exactly the same bare-fisted fighting as above
   HC.STYLES.unarmed = Object.assign({}, HC.STYLES.fists, { noHold: true });
+  // ---- admin guns (models/gun_*.glb: grip through the fist, barrel along +Z). fired by game.js (hitscan / projectiles)
+  //   dmg per bullet, rpm, auto (hold to fire), mag, reload s, spread (rad), pellets, proj (rocket|grenade|plasma), boom (blast radius)
+  //   slide: where the left hand holds (metres forward along the barrel; 0 = one-handed), muzzle: [y, z] in the model, zoom: aim zoom
+  HC.GUNS = {
+    pistol: { name: 'Service Pistol', dmg: 34, rpm: 320, mag: 12, reload: 1.3, spread: 0.012, kind: 'pistol', recoil: 0.035, muzzle: [0.063, 0.171], slide: 0 },
+    revolver: { name: 'Revolver', dmg: 72, rpm: 150, mag: 6, reload: 2.1, spread: 0.008, kind: 'magnum', recoil: 0.08, muzzle: [0.071, 0.242], slide: 0 },
+    deagle: { name: 'Hand Cannon', dmg: 98, rpm: 140, mag: 7, reload: 1.7, spread: 0.01, kind: 'magnum', recoil: 0.1, muzzle: [0.071, 0.251], slide: 0 },
+    smg: { name: 'Submachine Gun', dmg: 17, rpm: 900, auto: true, mag: 32, reload: 1.6, spread: 0.032, kind: 'smg', recoil: 0.012, muzzle: [0.069, 0.275], slide: 0.143, support: [0.043, 0.143] },
+    rifle: { name: 'Assault Rifle', dmg: 29, rpm: 650, auto: true, mag: 30, reload: 2.0, spread: 0.014, kind: 'rifle', recoil: 0.018, muzzle: [0.133, 0.623], slide: 0.275, support: [0.103, 0.275], zoom: 0.55 },
+    lmg: { name: 'Light Machine Gun', dmg: 31, rpm: 760, auto: true, mag: 100, reload: 3.6, spread: 0.03, kind: 'rifle', recoil: 0.016, muzzle: [0.118, 0.921], slide: 0.4, support: [0.14, 0.4] },
+    minigun: { name: 'Minigun', dmg: 21, rpm: 2400, auto: true, mag: 300, reload: 4.2, spread: 0.05, kind: 'minigun', recoil: 0.006, muzzle: [0.11, 0.73], slide: 0.05, spin: 0.55 },
+    shotgun: { name: 'Pump Shotgun', dmg: 17, pellets: 9, rpm: 72, mag: 6, reload: 2.6, spread: 0.085, kind: 'shotgun', recoil: 0.12, muzzle: [0.059, 0.75], slide: 0.374, support: [0.008, 0.374] },
+    dbarrel: { name: 'Double-Barrel', dmg: 19, pellets: 12, rpm: 260, mag: 2, reload: 1.9, spread: 0.11, kind: 'shotgun', recoil: 0.16, muzzle: [0.088, 0.561], slide: 0.219, support: [0.058, 0.219] },
+    sniper: { name: 'Sniper Rifle', dmg: 280, rpm: 46, mag: 5, reload: 2.7, spread: 0.0, kind: 'sniper', recoil: 0.14, muzzle: [0.068, 0.937], slide: 0.374, support: [0.028, 0.374], zoom: 0.3, scope: true, pierce: true },
+    rocket: { name: 'Rocket Launcher', dmg: 280, rpm: 40, mag: 1, reload: 2.4, spread: 0.0, kind: 'rocket', recoil: 0.12, muzzle: [0.072, 0.505], slide: 0.104, support: [0.0, 0.104], proj: 'rocket', speed: 42, boom: 6.5 },
+    glauncher: { name: 'Grenade Launcher', dmg: 170, rpm: 110, mag: 6, reload: 3.0, spread: 0.0, kind: 'grenade', recoil: 0.08, muzzle: [0.13, 0.627], slide: 0.313, support: [-0.049, 0.313], proj: 'grenade', speed: 26, grav: 11, boom: 5 },
+    plasma: { name: 'Plasma Rifle', dmg: 44, rpm: 420, auto: true, mag: 40, reload: 2.0, spread: 0.01, kind: 'plasma', recoil: 0.01, muzzle: [0.055, 0.566], slide: 0.23, support: [0.066, 0.23], proj: 'plasma', speed: 75 },
+  };
+  // holding a gun: always at the ready, pointing where you look (the stance is measured in the pistol-aim pose;
+  // the fist closes on the grip and the wrist turns the barrel level and forward)
+  HC.STYLES.gun = { ranged: true, gun: true, light: { dmg: 0, poise: 0, dur: 0.2, hit: 0.05, st: 0 }, heavy: { dmg: 0, poise: 0, dur: 0.2, hit: 0.05, st: 0 }, idle: 'Idle_Loop',
+    aim: { clip: 'Pistol_Aim_Neutral', t: 0.4, rot: [0, 0, 0], bow: true, full: true, wristMax: 3.2 },
+    carry: { clip: 'Pistol_Aim_Neutral', t: 0.4, rot: [0, 0, 0], bow: true, full: true, wristMax: 3.2 } };
   // the Lab Rat (admin command): no weapons, only bites. The human rig is hidden; the rat is animated in code.
   HC.STYLES.rat = { light: { dmg: 9, poise: 6, range: 1.35, arc: 1.5, dur: 0.34, hit: 0.11, st: 5 }, heavy: { dmg: 22, poise: 16, range: 1.7, arc: 1.2, dur: 0.62, hit: 0.3, st: 12 },
     clips: ['Punch_Jab'], heavyClip: 'Punch_Jab', windup: 0.2, idle: 'Idle_Loop', noHold: true, bite: true };
@@ -461,6 +484,9 @@
   }
   const FIGHT_ACTS = ['attack', 'heavy', 'block', 'charge'];
   const _qI = new Q();
+  // gun grip: the fist's hole runs up the grip (gun +Y), knuckles toward the muzzle (gun +Z)
+  const GUN_GRIP_Q = new Q().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new V3(0, 0, 1), new V3(1, 0, 0), new V3(0, 1, 0)));
+  const SUPPORT_Q = new Q().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new V3(0, -1, 0), new V3(1, 0, 0), new V3(0, 0, 1)));
   const _up = new V3(0, 1, 0), _aim = new V3(), _t = new V3(), _p = new V3(), _mi = new THREE.Matrix4(), _qq = new Q();
 
   class Avatar {
@@ -487,6 +513,7 @@
       if (this.weapon2 && this.weapon2.parent) this.weapon2.parent.remove(this.weapon2); this.weapon2 = null;
       if (this.string) { this.string.geometry.dispose(); this.string = null; }
       this.nockArrow = null;
+      if (this.gunPivot) { this.gunPivot.parent && this.gunPivot.parent.remove(this.gunPivot); this.gunPivot = null; this.rh = null; }
       const S = HC.STYLES[style] || HC.STYLES.sword;
       this.style = HC.STYLES[style] ? style : 'sword';
       this.hand = S.hand || 'hand_r';
@@ -508,6 +535,24 @@
       if (S.aim) this.stances.aim = r.stanceLocal(this.hand, S.aim);
       if (!this.stances.fight) this.stances.fight = this.stances.aim || this.stances.carry;
       this.lh = HC.TWO_HAND[this.style] ? this.measureLeftFist(HC.TWO_HAND[this.style]) : null;
+      // guns: held at a ready position in front of the chest (a pivot at the right shoulder that tilts with the aim);
+      // both hands are put on it by IK every frame (see gunHands)
+      this.gunId = S.gun ? String(model).replace(/^gun_/, '') : null;
+      const GN = this.gunId && HC.GUNS[this.gunId];
+      if (this.gunPivot) { this.gunPivot.parent && this.gunPivot.parent.remove(this.gunPivot); this.gunPivot = null; }
+      if (GN && this.weapon) {
+        this.weapon.parent && this.weapon.parent.remove(this.weapon);
+        const pivot = new THREE.Group(), long = GN.slide > 0.1;
+        pivot.position.set(-0.16, 1.42, 0.02);                                 // the right shoulder (model space: +Z forward, -X right)
+        this.weapon.position.set(0.1, -0.12 - (long ? 0.03 : 0), long ? 0.26 : 0.46);   // grip: long guns tucked in, pistols at arm's length
+        this.weapon.quaternion.identity(); this.weapon.scale.setScalar(1 / (r.look.scale || 1));
+        pivot.add(this.weapon); r.model.add(pivot); this.gunPivot = pivot; this.gunRest = this.weapon.position.clone();
+        this.rh = this.measureFist('hand_r', 'Punch_Cross', 0.3, {});
+        // the support hand: on the handguard / pump / front handle (measured on each model), else under the barrel
+        this.lh = GN.support ? this.measureLeftFist({ slide: GN.support[1], y: GN.support[0], support: true })
+          : GN.slide ? this.measureLeftFist({ slide: GN.slide, y: GN.muzzle[0] - 0.035, support: true }) : null;
+        this.stances = {};
+      } else this.rh = null;
       this.updateShieldVis && this.updateShieldVis();
       this.applyStance(this.stances.carry || this.stances.fight, 1);
       if (glow != null && glowAmt > 0) {
@@ -531,28 +576,64 @@
     }
     // the left hand as a closed fist (from the jab): its finger rotations, and where its grip hole sits relative
     // to the hand bone, so the IK can put that hole - not the wrist - on the haft
-    measureLeftFist(spec) {
-      const r = this.rig, h = r.b.hand_l; if (!h || !r.b.upperarm_l) return null;
-      return r.withPose('Punch_Jab', 0.2, () => {
+    measureLeftFist(spec) { return this.measureFist('hand_l', 'Punch_Jab', 0.2, spec); }
+    measureFist(hand, clip, t, spec) {
+      const r = this.rig, h = r.b[hand], side = hand.slice(-1); if (!h || !r.b['upperarm_' + side]) return null;
+      return r.withPose(clip, t, () => {
         const inv = new THREE.Matrix4().copy(r.model.matrixWorld).invert();
-        const g = r.gripFrame('hand_l', inv);
+        const g = r.gripFrame(hand, inv);
         _m.copy(inv).multiply(h.matrixWorld).decompose(_v, _q2, _s);
         const off = _q2.clone().invert().multiply(g.quat);                       // hand -> grip frame
         const c = h.worldToLocal(g.pos.clone().applyMatrix4(r.model.matrixWorld));  // grip hole, hand-local
         const fingers = [];
-        h.traverse(b => { if (b !== h && b.isBone && /^(index|middle|ring|pinky|thumb)_0[123]_l$/.test(b.name)) fingers.push([b, b.quaternion.clone()]); });
-        return { slide: spec.slide, offInv: off.invert(), c, fingers, w: 0 };
+        const fre = new RegExp('^(index|middle|ring|pinky|thumb)_0[123]_' + side + '$');
+        h.traverse(b => { if (b !== h && b.isBone && fre.test(b.name)) fingers.push([b, b.quaternion.clone()]); });
+        return { slide: spec.slide, y: spec.y || 0, support: !!spec.support, offInv: off.invert(), c, fingers, w: 0 };
       });
     }
     // two-handed weapons: reach the left arm to the haft and close the fist around it (on top of any clip)
+    // ---- guns: aim the pivot, then put the right fist on the grip and the left on the handguard (or the magazine)
+    gunHands(dt, a) {
+      const P = this.gunPivot, r = this.rig; if (!P || !this.weapon) return;
+      const on = !['roll', 'downed', 'revive', 'drink', 'throw', 'getup', 'pickup', 'interact', 'rest', 'hurt', 'drive'].includes(a);
+      this.gunW = damp(this.gunW || 0, on ? 1 : 0, on ? 12 : 16, dt);
+      this.gunRl = damp(this.gunRl || 0, this.gunReload > 0 ? 1 : 0, 10, dt);
+      if (this.gunReload > 0) this.gunReload = Math.max(0, this.gunReload - dt);
+      const pitch = Math.max(-0.9, Math.min(0.9, (this.pitch || 0) - 0.12)), kick = this.gunKick || 0;
+      P.rotation.set(-pitch + this.gunRl * 0.55 - kick * 0.5 + (1 - this.gunW) * 0.9, 0, this.gunRl * 0.35, 'YXZ');
+      this.weapon.position.copy(this.gunRest).add(new V3(0, 0, -kick * 0.12));
+      if (this.gunW < 0.02) return;
+      r.model.updateMatrixWorld(true);
+      const wq = new Q(); this.weapon.matrixWorld.decompose(_v, wq, _s);
+      if (this.rh) this.placeHand(this.rh, 'r', this.weapon.localToWorld(new V3(0, 0, 0)), wq.clone().multiply(GUN_GRIP_Q), this.gunW);
+      if (this.lh) {
+        const tgt = this.gunRl > 0.5 ? new V3(0, -0.08, 0.06) : new V3(0, this.lh.y || 0, this.lh.slide);   // reloading: hand to the magazine
+        this.placeHand(this.lh, 'l', this.weapon.localToWorld(tgt), wq.clone().multiply(SUPPORT_Q), this.gunW);
+      }
+    }
+    // put a hand's closed fist (measured fist data L) so its grip hole sits at targetW with grip-frame orientation frameQ
+    placeHand(L, side, targetW, frameQ, w) {
+      const r = this.rig, h = r.b['hand_' + side]; if (!h) return;
+      const Qd = frameQ.multiply(L.offInv), hs = h.getWorldScale(new V3());
+      const wrist = targetW.clone().sub(L.c.clone().multiply(hs).applyQuaternion(Qd));
+      const elbow = r.b['lowerarm_' + side].getWorldPosition(new V3());
+      const out = new V3(side === 'r' ? -0.35 : 0.35, -0.4, -0.1).applyQuaternion(r.model.getWorldQuaternion(new Q()));   // elbows down and out
+      r.ik('upperarm_' + side, 'lowerarm_' + side, 'hand_' + side, wrist, elbow.add(out), w);
+      const pq = h.parent.getWorldQuaternion(new Q());
+      h.quaternion.slerp(pq.invert().multiply(Qd), w);
+      L.fingers.forEach(([b, q]) => b.quaternion.slerp(q, w));
+      h.updateMatrixWorld(true);
+    }
     leftHandOnHaft(dt, a) {
-      const L = this.lh, r = this.rig; if (!L || !this.weapon) return;
+      const L = this.lh, r = this.rig; if (!L || !this.weapon || this.gunPivot) return;
       const on = this.weapon.visible && !['roll', 'downed', 'revive', 'drink', 'throw', 'getup', 'pickup', 'interact', 'rest', 'hurt', 'drive'].includes(a) && !this.air;
       L.w = damp(L.w, on ? 1 : 0, on ? 9 : 14, dt);
       if (L.w < 0.01) return;
       r.model.updateMatrixWorld(true);
       const wm = this.weapon.matrixWorld, wq = new Q(); wm.decompose(_v, wq, _s);
-      const target = new V3(0, 0, L.slide).applyMatrix4(wm);
+      const target = new V3(0, L.y || 0, L.slide).applyMatrix4(wm);
+      // a gun's support hand: its fist's hole runs along the barrel, knuckles down, palm cupping the handguard from below
+      if (L.support) wq.multiply(SUPPORT_Q);
       const Qd = wq.multiply(L.offInv);                                            // hand_l world orientation
       const hs = r.b.hand_l.getWorldScale(new V3());
       const wrist = target.sub(L.c.clone().multiply(hs).applyQuaternion(Qd));
@@ -760,7 +841,7 @@
     }
     // bows, crossbows and staffs need the left hand: the shield is slung away while one is held
     // (two-handed weapons too: greatswords, greataxes, hammers, halberds and scythes)
-    updateShieldVis() { const S = HC.STYLES[this.style] || {}; if (this.shield) this.shield.visible = !this.ratObj &&!S.twoHand && !HC.TWO_HAND[this.style] && !['bow', 'crossbow', 'staff', 'greatsword', 'greataxe', 'hammer', 'halberd', 'scythe'].includes(this.style); }
+    updateShieldVis() { const S = HC.STYLES[this.style] || {}; if (this.shield) this.shield.visible = !this.ratObj && !S.gun && !S.twoHand && !HC.TWO_HAND[this.style] && !['bow', 'crossbow', 'staff', 'greatsword', 'greataxe', 'hammer', 'halberd', 'scythe'].includes(this.style); }
     get hasShield() { return !!(this.shield && this.shield.visible); }
     applyStance(st, f) {
       if (!st || !this.weapon) return;
@@ -887,8 +968,9 @@
       if (layer) r.layer(layer[0], layer[1], layer[2]); else r.layer(null);
       r.update(dt);
       // first person: bend the chest and neck with where you look, so the arms and weapon stay in view
-      if (this.fp && !['drive', 'roll', 'downed', 'revive', 'rest', 'getup'].includes(a)) {
-        const p = Math.max(-0.8, Math.min(0.8, (this.pitch || 0) - 0.12));
+      this.gunKick = Math.max(0, (this.gunKick || 0) - dt * 6);
+      if ((this.fp || (S.gun && this.weapon)) && !['drive', 'roll', 'downed', 'revive', 'rest', 'getup'].includes(a)) {
+        const p = Math.max(-0.8, Math.min(0.8, (this.pitch || 0) - 0.12)) + (this.gunKick || 0);
         r.overlay('spine_02', -p * 0.3, 0, 0); r.overlay('spine_03', -p * 0.35, 0, 0);
         if (r.b.neck_01) r.overlay('neck_01', -p * 0.25, 0, 0);
       }
@@ -901,7 +983,8 @@
       else {
         // ordinary grips: blend toward the stance for what the character is doing
         let k = 'fight';
-        if (S.ranged) k = S.aim && ['attack', 'heavy'].includes(a) ? 'aim' : 'carry';
+        if (S.gun) k = 'aim';
+        else if (S.ranged) k = S.aim && ['attack', 'heavy'].includes(a) ? 'aim' : 'carry';
         else if (this.stances.carry && !FIGHT_ACTS.includes(a)) k = 'carry';
         const st = this.stances[k] || this.stances.fight || this.stances.carry;
         // thrown weapons vanish from the hand once released, until the throw is over
@@ -911,6 +994,7 @@
         if (this.string && this.drawW <= 0.01) { this.setString(null); if (this.nockArrow) this.nockArrow.visible = false; }
       }
       this.leftHandOnHaft(dt, a);
+      this.gunHands(dt, a);
       if (this.ratObj) this.animateRat(dt, a);
       // behind the wheel: both hands on the rim (10 and 2), following it as it turns
       if (a === 'drive' && this.driveGrips) {
@@ -1040,6 +1124,14 @@
     else if (type === 'arrow' && HC.assets && HC.assets.arrow) { mesh = W.clone('arrow'); mesh.scale.setScalar(1.15); }
     else if ((type === 'javelin' || type === 'knife') && HC.assets && HC.assets[type]) { mesh = W.clone(type); }   // model tips point +Z = the flight direction
     else if (type === 'void') { mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 1), new THREE.MeshBasicMaterial({ color: 0x8a20ff, toneMapped: false })); }
+    else if (type === 'rocket') {
+      mesh = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.5, 10), new THREE.MeshStandardMaterial({ color: 0x4a5236, roughness: 0.6, metalness: 0.3 })); body.rotation.x = Math.PI / 2; mesh.add(body);
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.16, 10), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.5 })); nose.rotation.x = Math.PI / 2; nose.position.z = 0.33; mesh.add(nose);
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.35, 8), new THREE.MeshBasicMaterial({ color: 0xffa040, toneMapped: false, transparent: true, opacity: 0.85 })); flame.rotation.x = -Math.PI / 2; flame.position.z = -0.42; mesh.add(flame);
+    }
+    else if (type === 'grenade') mesh = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), new THREE.MeshStandardMaterial({ color: 0x3a4628, roughness: 0.6, metalness: 0.2 }));
+    else if (type === 'plasma') { mesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), new THREE.MeshBasicMaterial({ color: 0x40e8ff, toneMapped: false })); mesh.scale.set(1, 1, 2.6); }
     else if (type === 'bomb' && HC.assets && HC.assets.potion) { mesh = W.clone('potion'); mesh.traverse(m => { if (m.isMesh && /Liquid/.test(m.material.name)) { m.material = m.material.clone(); m.material.color.setHex(0x222018); m.material.emissive && m.material.emissive.setHex(0x401000); } }); }
     else {
       mesh = new THREE.Mesh(new THREE.SphereGeometry(type === 'wave' ? 0.6 : 0.28, 12, 8), new THREE.MeshBasicMaterial({ color: type === 'pale' ? 0x9ad0ff : 0xff6a20, toneMapped: false }));
@@ -1060,6 +1152,8 @@
       if (p.type === 'bomb') p.mesh.rotation.x += dt * 9;
       if (p.type === 'knife') p.mesh.children[0].rotation.x += dt * 22;            // spinning end over end
       if (p.type === 'void') { p.mesh.rotation.y += dt * 5; if (Math.random() < 0.4) FX.spawn('spark', p.pos.clone()); }
+      if (p.type === 'rocket' && Math.random() < 0.7) FX.spawn('dust', p.pos.clone());                  // smoke trail
+      if (p.type === 'plasma' && Math.random() < 0.3) FX.spawn('spark', p.pos.clone());
       let dead = p.life <= 0;
       if (p.pos.x > 1500 ? !W.walkable(p.pos.x, p.pos.z) : p.pos.y < W.heightAt(p.pos.x, p.pos.z)) {
         dead = true;
@@ -1087,7 +1181,7 @@
           if (!p.pierce) dead = true;
         }
       });
-      if (dead && p.friendly && p.sim && p.type === 'bomb') HC.Game.bombBurst(p);
+      if (dead && p.friendly && p.sim && (p.type === 'bomb' || p.boom)) HC.Game.bombBurst(p);
       if (p.sim && players && !p.friendly) for (const pl of players) {
         if (!pl.alive || p.hit.has(pl.id)) continue;
         const r = p.type === 'wave' ? 2.2 : 0.8;
@@ -1128,6 +1222,8 @@
   SETS.bellbearer = { ...SETS.boss, idle: 'Idle_Loop', walk: 'Walk_Loop', run: 'Walk_Loop', over: 'Punch_Cross', side: 'Melee_Hook', thrust: 'Shield_Dash', walkSpeed: 1.4 * 2.1, walkTs: 0.8 };
   SETS.corvane = { ...SETS.boss, idle: 'Idle_Shield_Loop', walkSpeed: 1.4 * 1.18, runSpeed: 3.6 * 1.18 };
   SETS.king = { ...SETS.boss, walkSpeed: 1.4 * 1.75, runSpeed: 3.6 * 1.75 };
+  SETS.unseen = { ...SETS.boss, idle: 'Zombie_Idle_Loop', idleTs: 0.25, walk: 'Zombie_Walk_Fwd_Loop', run: 'Sprint_Loop', over: 'Zombie_Scratch', side: 'Zombie_Scratch', thrust: 'Melee_Hook',
+    walkSpeed: 1.0 * 2.0, runSpeed: 6.0 * 2.0, hit: 'Hit_Head', intro: 'LayToIdle' };
 
   const BOSSES = HC.BOSSES = {
     sentinel: { asset: 'sentinel', name: 'The Weeping Sentinel', title: 'Mourner of Blackroot', hp: 1400, speed: 2.0, run: 3.0, r: 1.5, h: 4.3, poise: 160, ash: 2500, sigil: 'tears',
@@ -1168,6 +1264,15 @@
         { n: 'combo', kind: 'melee', w: 0.6, a: 0.3, rec: 0.5, range: 5.2, arc: 1.4, dmg: 22, anim: 'over', min: 0, max: 4.5, next: 'sweep' },
         { n: 'erupt', kind: 'erupt', w: 1.0, a: 1.4, rec: 0.9, dmg: 26, anim: 'both', min: 6, max: 30, phase: 2 },
         { n: 'court', kind: 'summon', w: 1.0, a: 0.5, rec: 0.8, type: 'knight', count: 2, anim: 'both', min: 0, max: 40, phase: 2, once: true }] },
+    // the Watcher, shot and woken. While anyone looks at it, it can barely move and can be hurt; look away and it
+    // comes for you, blinks behind you and strikes, and your blows barely touch it.
+    unseen: { asset: 'watcher', name: 'The Unseen', title: 'That Which Is Behind You', hp: 1600, speed: 2.2, run: 7.5, r: 0.7, h: 4.0, poise: 1e9, ash: 6000, scale: 1.35,
+      attacks: [{ n: 'rend', kind: 'melee', w: 0.3, a: 0.3, rec: 0.7, range: 3.8, arc: 1.7, dmg: 34, anim: 'over', min: 0, max: 4.2 },
+        { n: 'shriek', kind: 'wave', w: 0.9, a: 0.4, rec: 1.0, dmg: 22, ring: 16, anim: 'both', min: 0, max: 12, color: 0x14141a },
+        { n: 'stare', kind: 'volley', w: 0.9, a: 0.4, rec: 0.8, dmg: 18, proj: 'pale', count: 5, anim: 'both', min: 5, max: 40 },
+        { n: 'behind', kind: 'blink', w: 0.15, a: 0.15, rec: 0.1, anim: 'idle', min: 7, max: 60, weight: 0.7, next: 'rend' },
+        { n: 'dread', kind: 'summon', w: 1.0, a: 0.5, rec: 0.8, type: 'wraith', count: 2, anim: 'both', min: 0, max: 60, phase: 2, once: true },
+        { n: 'grasp', kind: 'erupt', w: 1.0, a: 1.2, rec: 0.9, dmg: 26, anim: 'both', min: 4, max: 40, phase: 2, color: 0x202028 }] },
   };
 
   class Enemy {
@@ -1218,6 +1323,8 @@
         }
       }
       if (this.state === S.roar) d *= 0.5;
+      // the Unseen only truly feels a blow while somebody is looking at it
+      if (this.type === 'unseen' && !this.watched) { d *= 0.15; if (Math.random() < 0.3) HC.Game.sound('whisper', this.pos, 0.9); }
       this.hp -= d; this.rig.flash = 0.25; this.poise -= poiseDmg;
       if (this.hp <= 0) { this.hp = 0; this.setState(S.dead); HC.Game.onEnemyDeath(this); return true; }
       if (!this.boss && this.type !== 'knight' && Math.random() < 0.45) HC.Game.sound(this.type === 'wraith' ? 'moan' : 'snarl', this.pos, 0.6);
@@ -1323,6 +1430,8 @@
       }
     }
     watcherAI(dt, players) {
+      // once it has been shot it is the Unseen (a boss) - and once that is defeated, the forest is free of it
+      if (HC.Game.unseenAwake || (HC.Game.flags && HC.Game.flags.dead_unseen)) { if (this.state !== S.hidden) this.setState(S.hidden); this.root.visible = false; return; }
       const inForest = p => p.pos.x < -150 && p.pos.x < 1500;
       const cand = players.filter(p => p.alive && inForest(p));
       if (this.state === S.hidden) { this.root.visible = false; if (cand.length && this.stateT > 14) this.relocate(cand[Math.floor(Math.random() * cand.length)], 55); return; }
@@ -1374,6 +1483,16 @@
       let tp = players.find(p => p.id === this.target && p.alive);
       if (!tp || Math.random() < dt * 0.15) { tp = this.nearestPlayer(players, 90); this.target = tp ? tp.id : null; }
       if (!tp) return;
+      // the Unseen: held in place by eyes on it, and quick to punish anyone who looks away
+      if (this.type === 'unseen') {
+        this.watched = players.some(p => p.alive && p.look !== undefined && this.observedBy(p));
+        this.gaze = this.watched ? (this.phase === 2 ? 0.45 : 0.12) : 1.5;
+        this.unseenT = this.watched ? 0 : (this.unseenT || 0) + dt;
+        if (this.unseenT > (this.phase === 2 ? 1.2 : 1.8) && this.state === S.chase && tp.pos.distanceTo(this.pos) > 4) {
+          this.unseenT = 0; const bi = this.boss.attacks.findIndex(a => a.n === 'behind');
+          if (bi >= 0) { this.beginAttack(bi, players); HC.Game.sound('screech', this.pos, 1.1); return; }
+        }
+      }
       const d = tp.pos.distanceTo(this.pos), spd = this.phase === 2 ? 1.22 : 1, A = this.A;
       switch (this.state) {
         case S.chase: case S.idle: case S.ret: case S.guard: {
@@ -1383,7 +1502,7 @@
             const i = this.pickAttack(d);
             if (i >= 0 && (Math.random() < dt * 3.5 || d < 4)) { this.beginAttack(i, players); break; }
           }
-          if (d > c.r + 2.6) this.moveDir(tp.pos.x - this.pos.x, tp.pos.z - this.pos.z, (d > 10 ? c.run : c.speed) * spd, dt);
+          if (d > c.r + 2.6) this.moveDir(tp.pos.x - this.pos.x, tp.pos.z - this.pos.z, (d > 10 ? c.run : c.speed) * spd * (this.gaze || 1), dt);
           break;
         }
         case S.windup: {

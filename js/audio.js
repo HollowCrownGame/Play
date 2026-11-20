@@ -214,6 +214,31 @@
       sample('equip_cloth', d, Math.max(ctx.currentTime, t - 0.12), 0.95, 0.45);
       PROC.whoosh(d, Math.max(ctx.currentTime, t + A.LEAD - 0.42 * 0.35), 0.42, 1100, 160, 0.42);
     }
+    // ---- admin guns: a sharp crack (filtered noise), a low punch, a tail; each kind tuned differently
+    if (name === 'gun') {
+      const k = opts.kind || 'pistol';
+      const P = { pistol: [0.12, 2600, 0.5, 120, 0.5], magnum: [0.22, 1800, 0.75, 80, 0.8], smg: [0.07, 3000, 0.4, 140, 0.35], rifle: [0.11, 2200, 0.55, 100, 0.55],
+        minigun: [0.05, 3400, 0.3, 150, 0.3], shotgun: [0.28, 1300, 0.85, 60, 0.95], sniper: [0.35, 2000, 0.9, 55, 1.0], rocket: [0.5, 600, 0.6, 50, 0.7],
+        grenade: [0.18, 900, 0.5, 90, 0.4], plasma: [0.15, 0, 0.4, 0, 0] }[k] || [0.12, 2400, 0.5, 110, 0.5];
+      const [len, f, crack, low, thump] = P;
+      if (k === 'plasma') { tone(d, t, 0.18, 'sawtooth', 1800, 300, 0.18, 0.003); tone(d, t, 0.25, 'sine', 900, 120, 0.2, 0.003); noise(d, t, 0.12, 'bandpass', 4000, 1500, 2, 0.15, 0.002); }
+      else if (k === 'rocket') { noise(d, t, 0.9, 'lowpass', 1200, 200, 0.7, 0.5, 0.05); PROC.thud(d, t, 0.6); tone(d, t, 0.6, 'sawtooth', 160, 60, 0.12, 0.05); }
+      else {
+        noise(d, t, len, 'highpass', f, f * 0.4, 0.8, crack, 0.001);
+        noise(d, t, len * 1.6, 'lowpass', 1400, 200, 0.7, crack * 0.7, 0.002);
+        if (low) tone(d, t, len * 0.9, 'sine', low * 1.6, low * 0.5, thump * 0.6, 0.002);
+        if (k === 'shotgun' || k === 'sniper' || k === 'magnum') sample('boom', d, t, k === 'sniper' ? 1.6 : 1.9, 0.25 * thump);
+        if (k === 'shotgun' && !opts.noPump) { sample('clang', d, t + 0.45, 1.6, 0.25); noise(d, t + 0.5, 0.05, 'bandpass', 2500, 0, 2, 0.15, 0.001); }
+      }
+    }
+    if (name === 'gunEmpty') tone(d, t, 0.03, 'square', 2200, 1200, 0.12, 0.001);
+    if (name === 'gunReload') {            // mag out, mag in, slide
+      const L = opts.len || 1.5;
+      noise(d, t + 0.1, 0.05, 'bandpass', 1800, 0, 2, 0.2, 0.001); sample('clang', d, t + 0.12, 2.4, 0.15);
+      noise(d, t + L * 0.6, 0.06, 'bandpass', 1500, 0, 2, 0.25, 0.001); sample('clang', d, t + L * 0.62, 2.0, 0.2);
+    }
+    if (name === 'gunCock') { noise(d, t, 0.05, 'bandpass', 2800, 0, 2, 0.25, 0.001); noise(d, t + 0.09, 0.05, 'bandpass', 2000, 0, 2, 0.25, 0.001); }
+    if (name === 'gunSpin') tone(d, t, 0.2, 'sawtooth', 120, 260, 0.06, 0.02);
     // ---- the Lab Rat
     if (name === 'squeak') {          // two or three quick falling chirps
       const n = 2 + Math.floor(Math.random() * 2), f = 2600 + Math.random() * 900;

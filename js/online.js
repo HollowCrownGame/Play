@@ -201,10 +201,12 @@
   const TRANSFER_MIN = 10;
   O.TRANSFER_MIN = TRANSFER_MIN;
   O.fmtCode = c => c ? c.slice(0, 4) + '-' + c.slice(4) : '';
-  O.makeTransferCode = async function () {
+  // minutes: how long the code stays usable (5 minutes up to 7 days; firestore.rules allows at most 7 days)
+  O.makeTransferCode = async function (minutes = TRANSFER_MIN) {
+    const m = Math.max(1, Math.min(7 * 24 * 60, +minutes || TRANSFER_MIN));
     const code = randCode(8), now = Date.now();
-    await B.set('transfers/' + code, { from: O.uid, at: now, expires: now + TRANSFER_MIN * 60000 });
-    return { code, expires: now + TRANSFER_MIN * 60000 };
+    await B.set('transfers/' + code, { from: O.uid, at: now, expires: now + m * 60000 });
+    return { code, expires: now + m * 60000 };
   };
   O.cancelTransfer = code => B.del('transfers/' + code).catch(() => { });
   // replaceOwn: this device already has an account - it is deleted first (the caller has asked the player)

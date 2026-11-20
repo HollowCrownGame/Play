@@ -442,6 +442,23 @@
     return c;
   };
   W.addBox = (x, z, hw, hd, rot = 0, on) => W.boxes.push({ x, z, hw, hd, c: Math.cos(rot), s: Math.sin(rot), on });
+  // one-way invisible walls: a line you can cross from the inside (nx, nz points to it) out, but never from outside in
+  W.oneWays = [];
+  W.addOneWay = function (x1, z1, x2, z2, nx, nz) {
+    const len = Math.hypot(x2 - x1, z2 - z1), n = Math.hypot(nx, nz);
+    W.oneWays.push({ ax: x1, az: z1, tx: (x2 - x1) / len, tz: (z2 - z1) / len, len, nx: nx / n, nz: nz / n });
+  };
+  function oneWay(p, ox, oz, r) {
+    for (const w of W.oneWays) {
+      const s0 = (ox - w.ax) * w.nx + (oz - w.az) * w.nz;           // < 0: was outside
+      if (s0 >= 0) continue;                                         // coming from inside: free to leave
+      const s1 = (p.x - w.ax) * w.nx + (p.z - w.az) * w.nz;
+      if (s1 <= -r) continue;                                        // still clear of the line
+      const along = (p.x - w.ax) * w.tx + (p.z - w.az) * w.tz;
+      if (along < -r || along > w.len + r) continue;                 // beside the wall, not through it
+      p.x -= w.nx * (s1 + r); p.z -= w.nz * (s1 + r);                // pushed back outside
+    }
+  }
   W.blocked = function (x, z, r = 1) {   // used by placement to avoid overlapping objects
     const ix = Math.floor(x / HCELL), iz = Math.floor(z / HCELL);
     for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) {
@@ -513,7 +530,7 @@
       for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
         const l = hashMap.get(hkey(ix + a, iz + b)); if (l) for (const c of l) { const ox = p.x, oz = p.z; pushCircle(p, r, c); if (!free(p.x, p.z, r)) { p.x = ox; p.z = oz; } }
       }
-    } else { p.x += dx; p.z += dz; resolveOver(p, r); }
+    } else { const ox = p.x, oz = p.z; p.x += dx; p.z += dz; resolveOver(p, r); if (W.oneWays.length) oneWay(p, ox, oz, r); }
   };
   W.rayFree = function (a, b) {
     if (a.x < 1500) return 1;
@@ -797,6 +814,14 @@
     W.place('gatehouse', W.GATEHOUSE.x, W.GATEHOUSE.z, 0, 1, 0, y - 0.5);
     W.addBox(-5, W.GATEHOUSE.z, 2.6, 4.1); W.addBox(5, W.GATEHOUSE.z, 2.6, 4.1);
     W.addCircle(-8.2, W.GATEHOUSE.z + 3, 3.2); W.addCircle(8.2, W.GATEHOUSE.z + 3, 3.2);
+    // the gaps beside the gatehouse: sealed with invisible one-way walls (you can leave the courtyard through them,
+    // but the only way in is the gate). Chords along the wall line, 4-24 degrees either side of the gate.
+    for (const side of [1, -1]) {
+      const a1 = side * 4 / 180 * Math.PI, a2 = side * 24 / 180 * Math.PI, RR = 51.6;
+      const x1 = C.x + Math.sin(a1) * RR, z1 = C.z + Math.cos(a1) * RR, x2 = C.x + Math.sin(a2) * RR, z2 = C.z + Math.cos(a2) * RR;
+      const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+      W.addOneWay(x1, z1, x2, z2, C.x - mx, C.z - mz);            // "inside" = toward the courtyard
+    }
     W.citadelGate = W.place('gate', W.GATEHOUSE.x, W.GATEHOUSE.z + 3.2, 0, 1, 0, y);
     W.citadelGate.scale.set(0.98, 1.1, 1);
     W.addBox(0, W.GATEHOUSE.z + 3.2, 2.6, 0.6, 0, () => !W.citadelOpen);

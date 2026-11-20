@@ -304,7 +304,10 @@
       bellbearer: add('bellbearer', W.cellPos('cathedral', 22, 72), { yaw: Math.PI }),
       corvane: add('corvane', new V3(W.CITADEL.x, W.CIT_H, W.CITADEL.z - 6), { yaw: 0 }),
       king: add('king', W.cellPos('below', 40, 72), { yaw: Math.PI }),
+      // the Watcher's true form: waits unseen until someone shoots the Watcher (see 'unseenWake')
+      unseen: add('unseen', new V3(-300, W.heightAt(-300, 60), 60), { yaw: 0 }),
     };
+    G.bossE.unseen.root.scale.setScalar(G.bossE.unseen.cfg.scale || 1);
     G.summonN = 0;
   }
   G.onEnemyDeath = function (e) {
@@ -333,12 +336,16 @@
       bellbearer: { inside: dun('cathedral', 60), fog: 'bell', sigil: 'bell', relic: 'bellshard' },
       corvane: { inside: p => p.pos.x < 1500 && G.flags.citadelOpen && Math.hypot(p.pos.x - W.CITADEL.x, p.pos.z - W.CITADEL.z) < 30, arena: W.arenaCorvane, sigil: 'oath', relic: 'oathbrand' },
       king: { inside: dun('below', 58), fog: 'king', relic: 'shard' },
+      // no arena: the fight is wherever the Watcher was shot, and ends if everyone flees (see bossHost)
+      unseen: { inside: p => !!G.unseenAwake && p.pos.x < 1500 && p.pos.distanceTo(G.bossE.unseen.pos) < 80 },
     };
     // a ring of pale fog shows the arena boundary for outdoor fights
     const mk = a => { const m = new THREE.Mesh(new THREE.CylinderGeometry(a.r, a.r, 9, 48, 1, true), new THREE.MeshBasicMaterial({ color: 0xc8b89a, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, toneMapped: false })); m.position.set(a.x, W.heightAt(a.x, a.z) + 4, a.z); scene.add(m); return m; };
     G.bosses.sentinel.ringMesh = mk(W.arenaSentinel); G.bosses.corvane.ringMesh = mk(W.arenaCorvane);
   }
   function bossHost() {
+    // the Unseen has no walls: if every player gets far away from it, it fades back into the trees
+    if (G.activeBoss === 'unseen' && ![...G.players.values()].some(p => !p.downed && p.hp > 0 && p.pos.x < 1500 && p.pos.distanceTo(G.bossE.unseen.pos) < 110)) { event({ t: 'bossReset' }); return; }
     if (G.activeBoss) return;
     for (const key in G.bosses) {
       if (G.flags['dead_' + key]) continue;
@@ -365,6 +372,24 @@
     if (B.arena) B.arena.on = false;
     if (B.fog) W.fogWall = null;
     G.activeBoss = null; A.bossMusic(false); show('bossbar', false);
+    if (key === 'unseen') {
+      G.unseenAwake = false;
+      if (!won) {
+        // it fades back into the trees; the Watcher will be back to stalk the forest
+        const b = G.bossE.unseen; HC.FX.spawn('dust', b.pos.clone().setY(b.pos.y + 1.5)); A.play('whisper', b.pos, 1.2);
+        if (Net.isHost()) { b.reset(); if (G.watcher) G.watcher.stateT = -30; }
+        b.root.visible = false;
+        message('The Unseen slips back into the dark between the trees.');
+        return;
+      }
+      G.flags.dead_unseen = true;
+      areaBanner('THE UNSEEN IS SEEN NO MORE');
+      A.play('jingle_win', null, 0.55, { delay: 1.2 }); A.play('bell', null, 0.6, { delay: 2 });
+      setTimeout(() => message('The forest is quiet. Nothing watches you from the trees any more.'), 2500);
+      // its eye, Unholy - dropped where it fell
+      if (Net.isHost() && HC.Items) HC.Items.dropAt(HC.Items.make('eye', 6, 1), pos.clone(), 0);
+      return;
+    }
     if (!won) return;
     G.flags['dead_' + key] = true;
     if (B.sigil) G.flags['sigil_' + B.sigil] = true;
@@ -408,7 +433,28 @@
       case 'ping': HC.FX.spawn('pingMark', vec(e.pos), { color: HC.PLAYER_COLORS[e.slot % 4] }); A.play('ping', vec(e.pos), 1.2); break;
       case 'spawn': if (!G.enemies.has(e.id)) { const en = new HC.Enemy(e.id, e.type, vec(e.pos)); en.summoned = true; G.enemies.set(e.id, en); en.setState(S.chase); } break;
       case 'bossIntro': startBossIntro(e.key); break;
-      case 'bossPhase': A.bossMusic(true, 2); if (G.bossE[e.key]) A.play('laugh', G.bossE[e.key].pos, 1.2); areaBanner({ sentinel: 'THE SENTINEL WEEPS NO MORE', brother: 'IT SPEAKS WITH YOUR VOICE', bellbearer: 'THE BELL CRACKS', corvane: 'THE CAPTAIN REMEMBERS HIS OATH', king: 'THE KING REMEMBERS HIS OATH' }[e.key] || ''); break;
+      case 'bossPhase': A.bossMusic(true, 2); if (G.bossE[e.key]) A.play('laugh', G.bossE[e.key].pos, 1.2); areaBanner({ sentinel: 'THE SENTINEL WEEPS NO MORE', brother: 'IT SPEAKS WITH YOUR VOICE', bellbearer: 'THE BELL CRACKS', corvane: 'THE CAPTAIN REMEMBERS HIS OATH', king: 'THE KING REMEMBERS HIS OATH', unseen: 'IT IS EVERYWHERE YOU ARE NOT LOOKING' }[e.key] || ''); break;
+      case 'gfire': {
+        // somebody else's gunshot: hear it, see the flash and the tracer
+        if (e.by === Net.pid) break;
+        const from = vec(e.from); A.play('gun', from, 1.2, { kind: e.kind }); HC.FX.spawn('spark', from.clone());
+        if (e.to) { const to = vec(e.to); tracer(from, to); HC.FX.spawn('spark', to); }
+        G.muzzleT = 0.05; G.muzzleP = from;
+        break;
+      }
+      case 'unseenWake': {
+        // someone shot the Watcher: it turns, grows, and becomes the Unseen (a boss fight starts on the spot)
+        if (G.unseenAwake || G.flags.dead_unseen || G.activeBoss) break;
+        G.unseenAwake = true;
+        const p = vec(e.pos); HC.FX.spawn('dust', p.clone().setY(p.y + 1.5)); HC.FX.spawn('ring', p, { color: 0x101014, r: 8, life: 1.2 });
+        A.play('screech', p, 1.6); A.play('laugh', p, 1.0, { delay: 0.8 }); G.shakeA = Math.max(G.shakeA || 0, 0.6);
+        message(`${String(e.by || 'Someone').slice(0, 14)} shot the Watcher. It turns its face toward you... KEEP YOUR EYES ON IT.`);
+        if (Net.isHost()) {
+          const b = G.bossE.unseen; b.pos.copy(p); b.netPos.copy(p); b.home.copy(p); b.root.position.copy(p);
+          if (G.watcher) { G.watcher.setState(S.hidden); G.watcher.root.visible = false; }
+        }
+        break;
+      }
       case 'bossDead': endBoss(e.key, true, vec(e.pos)); break;
       case 'bossReset': if (G.activeBoss) endBoss(G.activeBoss, false); break;
       case 'ash': if (me && me.pos.distanceTo(vec(e.pos)) < 70 && e.amt) { const n = Math.round(e.amt * (1 + (me.luck || 0))); me.ash += n; floatText(`+${n} ashes`); } break;
@@ -676,6 +722,8 @@
     if (!me) return;
     held[kind] = true;
     const S = style();
+    // guns: the trigger is read every frame in gunTick (so automatics keep firing); heavy [Q] reloads
+    if (S.gun) { if (kind === 'heavy') startReload(); else G.gunFiredThisPress = false; return; }
     if (S.charge === 'draw') return startDraw();
     if (S.charge === 'cast') return startCast(kind);
     if (!S.ranged && kind === 'heavy' && me.avatar.weapon) return startCharge();
@@ -887,12 +935,134 @@
     HC.FX.spawn('blood', hp); A.play('hit', hp, 0.9);
     event({ t: 'pvp', target: p.id, dmg: Math.round(Math.min(160, dmg * 0.6)), src: [me.pos.x, me.pos.y, me.pos.z], by: me.name });
   };
-  G.projHit = (e, p) => hitEnemy(e, p.dmg, p.poise || 10, { fire: p.fire, perk: p.perk, ranged: true, proj: p.type, frost: p.frost });
-  G.bombBurst = function (p) {
-    const kind = p.kind || 'fire';
-    G.fx('ring', p.pos, { color: kind === 'frost' ? 0x9ad8ff : kind === 'holy' ? 0xfff4d0 : 0xff6a20, r: 4, life: 0.6 }); G.fx(kind === 'fire' ? 'ember' : 'spark', p.pos); G.sound(kind === 'fire' ? 'boom' : 'spell', p.pos, 0.9); G.sound('glass', p.pos, 0.8);
-    G.enemies.forEach(e => { if (e.alive && e.root.visible && e.pos.distanceTo(p.pos) < 3.8 + e.cfg.r) hitEnemy(e, p.dmg * dmgMul(), 60, { fire: kind === 'fire', frost: kind === 'frost', ranged: true }); });
+  // shooting the Watcher (arrows, bolts, spells, javelins, knives - not melee) wakes the Unseen
+  const projHitEnemy = (e, p) => hitEnemy(e, p.dmg, p.poise || 10, { fire: p.fire, perk: p.perk, ranged: true, proj: p.type, frost: p.frost });
+  G.projHit = (e, p) => {
+    if (p.boom) return;                                                     // rockets / grenades: the blast does the damage
+    if (e.type === 'watcher') {
+      HC.FX.spawn('dust', e.pos.clone().setY(e.pos.y + 1.5));
+      if (!G.unseenAwake && !G.flags.dead_unseen && !G.activeBoss) event({ t: 'unseenWake', pos: [e.pos.x, e.pos.y, e.pos.z], by: me.name });
+      return;
+    }
+    projHitEnemy(e, p);
   };
+  G.bombBurst = function (p) {
+    const kind = p.kind || 'fire', R = p.boom || 3.8;
+    G.fx('ring', p.pos, { color: kind === 'frost' ? 0x9ad8ff : kind === 'holy' ? 0xfff4d0 : 0xff6a20, r: R * 1.05, life: 0.6 }); G.fx(kind === 'fire' ? 'ember' : 'spark', p.pos); G.sound(kind === 'fire' ? 'boom' : 'spell', p.pos, p.boom ? 1.4 : 0.9);
+    if (!p.boom) G.sound('glass', p.pos, 0.8); else { G.fx('dust', p.pos.clone().setY(p.pos.y + 0.5)); G.shake(Math.min(0.9, 6 / Math.max(3, p.pos.distanceTo(me.pos)))); }
+    G.enemies.forEach(e => { if (e.alive && e.root.visible && e.pos.distanceTo(p.pos) < R + e.cfg.r) hitEnemy(e, p.dmg * (p.boom ? 1 : dmgMul()) * (p.boom ? 1 - 0.5 * e.pos.distanceTo(p.pos) / (R + e.cfg.r) : 1), 60, { fire: kind === 'fire', frost: kind === 'frost', ranged: true, heavy: true }); });
+    if (p.boom && G.pvp) G.players.forEach(pl => { if (!pl.local && pl.pos.distanceTo(p.pos) < R) G.pvpHit(pl, p.dmg * 0.5); });
+  };
+  // ================================================================ admin guns (HC.GUNS in entities.js)
+  // hitscan bullets along the crosshair (tracers, impacts, PvP), or rockets / grenades / plasma bolts; magazines with
+  // auto-reload ([Q] reloads early), hold to fire automatics, right mouse aims (the sniper zooms right in)
+  const GN = () => me && me.avatar.gunId ? HC.GUNS[me.avatar.gunId] : null;
+  G.gunAmmo = {};
+  const tracers = [];
+  function tracer(a, b, color = 0xffe0a0) {
+    const g = new THREE.BufferGeometry().setFromPoints([a, b]);
+    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, toneMapped: false }));
+    scene.add(l); tracers.push({ l, t: 0.07 });
+  }
+  function updateTracers(dt) {
+    for (let i = tracers.length - 1; i >= 0; i--) { const t = tracers[i]; t.t -= dt; t.l.material.opacity = Math.max(0, t.t / 0.07); if (t.t <= 0) { scene.remove(t.l); t.l.geometry.dispose(); tracers.splice(i, 1); } }
+  }
+  function muzzlePos(av) {
+    const g = av.gunId && HC.GUNS[av.gunId];
+    if (!g || !av.weapon) return av.pos.clone().add(new V3(0, 1.4, 0));
+    av.weapon.updateMatrixWorld(true);
+    return av.weapon.localToWorld(new V3(0, g.muzzle[0], g.muzzle[1]));
+  }
+  // a ray from the camera through the crosshair: the first enemy / player / ground it meets
+  function gunRay(dir, maxD, pierce) {
+    const o = camera.position.clone(), hits = [];
+    const start = Math.max(0, me.pos.clone().setY(me.pos.y + 1.4).sub(o).dot(dir));   // skip what is between the camera and you
+    G.enemies.forEach(e => {
+      if (!e.alive || !e.root.visible) return;
+      const c = e.pos.clone().setY(e.pos.y + Math.min(e.cfg.h, 3) * 0.55), t = c.clone().sub(o).dot(dir);
+      if (t < start || t > maxD) return;
+      const near = o.clone().addScaledVector(dir, t), r = (e.cfg.r || 0.5) + 0.25;
+      if (Math.hypot(near.x - c.x, near.z - c.z) < r && Math.abs(near.y - c.y) < Math.max(1.1, e.cfg.h * 0.6)) hits.push({ t, e, p: near });
+    });
+    if (G.pvp) G.players.forEach(pl => {
+      if (pl.local || pl.downed) return;
+      const c = pl.pos.clone().setY(pl.pos.y + 1), t = c.clone().sub(o).dot(dir); if (t < start || t > maxD) return;
+      const near = o.clone().addScaledVector(dir, t); if (Math.hypot(near.x - c.x, near.z - c.z) < 0.5 && Math.abs(near.y - c.y) < 1) hits.push({ t, pl, p: near });
+    });
+    // the ground / walls underground
+    let gt = maxD; const p = o.clone();
+    for (let s = start; s < maxD; s += 0.5) { p.copy(o).addScaledVector(dir, s); if (p.y < W.heightAt(p.x, p.z) || (p.x > 1500 && !W.walkable(p.x, p.z))) { gt = s; break; } }
+    hits.sort((a, b) => a.t - b.t);
+    const out = hits.filter(h => h.t < gt);
+    return { hits: pierce ? out.slice(0, 3) : out.slice(0, 1), end: o.clone().addScaledVector(dir, out.length && !pierce ? out[0].t : gt), ground: gt < maxD };
+  }
+  function fireGun() {
+    const g = GN(); if (!g || me.downed || me.driving) return;
+    const id = me.avatar.gunId;
+    if (G.gunAmmo[id] === undefined) G.gunAmmo[id] = g.mag;
+    if (G.gunReloadT > 0) return;
+    if (G.gunAmmo[id] <= 0) { A.play('gunEmpty', null, 0.7); startReload(); return; }
+    if (g.spin && (G.gunSpin || 0) < g.spin) return;                       // minigun barrels still spinning up
+    G.gunAmmo[id]--; G.gunCd = 60 / g.rpm;
+    const mz = muzzlePos(me.avatar), aimF = new V3(); camera.getWorldDirection(aimF);
+    const spread = g.spread * (me.aiming ? 0.35 : 1) * (G.camZoom < 0.9 ? 0.6 : 1);
+    if (g.proj) {
+      // rockets, grenades, plasma: aimed at what the crosshair is on
+      const to = gunRay(aimF, 250, false).end;
+      const dir = to.clone().sub(mz).normalize(); dir.x += (Math.random() - 0.5) * spread; dir.y += (Math.random() - 0.5) * spread;
+      const vel = dir.normalize().multiplyScalar(g.speed);
+      if (g.grav) vel.y += g.grav * (to.distanceTo(mz) / g.speed) * 0.5;
+      HC.Proj.spawn(g.proj, mz, vel, g.dmg, true, { friendly: true, grav: g.grav || 0, life: g.proj === 'plasma' ? 2 : 5, boom: g.boom, kind: 'fire', fire: g.proj !== 'plasma', poise: 40 });
+      event({ t: 'pshot', type: g.proj, pos: mz.toArray(), vel: vel.toArray(), grav: g.grav || 0, by: Net.pid });
+    } else {
+      for (let k = 0; k < (g.pellets || 1); k++) {
+        const dir = aimF.clone(); dir.x += (Math.random() - 0.5) * spread * 2; dir.y += (Math.random() - 0.5) * spread * 2; dir.z += (Math.random() - 0.5) * spread * 2; dir.normalize();
+        const r = gunRay(dir, g.kind === 'sniper' ? 400 : 160, g.pierce);
+        r.hits.forEach(h => {
+          if (h.e) hitEnemy(h.e, g.dmg, g.dmg * 0.6, { ranged: true, proj: 'bolt', heavy: g.dmg > 60 });
+          else if (h.pl) G.pvpHit(h.pl, g.dmg);
+        });
+        if (!r.hits.length && r.ground) HC.FX.spawn(r.end.x > 1500 ? 'stone' : 'dust', r.end.clone());
+        else if (r.hits.length && !r.hits[0].e) HC.FX.spawn('blood', r.end.clone());
+        else if (r.hits.length) HC.FX.spawn('spark', r.hits[0].p.clone());
+        tracer(mz, r.hits.length ? r.hits[r.hits.length - 1].p : r.end, g.kind === 'sniper' ? 0xfff4d0 : 0xffd080);
+        if (k === 0) G.gunTo = r.hits.length ? r.hits[0].p : r.end;
+      }
+    }
+    // flash, sound, recoil
+    HC.FX.spawn('spark', mz.clone()); G.muzzleT = 0.05; G.muzzleP = mz;
+    A.play('gun', null, 1, { kind: g.kind });
+    event({ t: 'gfire', by: Net.pid, kind: g.kind, from: mz.toArray(), to: g.proj ? null : (G.gunTo ? G.gunTo.toArray() : null) });
+    const kick = g.recoil * (me.aiming ? 0.6 : 1) * (0.8 + Math.random() * 0.4);
+    me.camPitch -= kick; G.recoilAcc = (G.recoilAcc || 0) + kick; me.camYaw += (Math.random() - 0.5) * g.recoil * 0.4;
+    me.avatar.gunKick = Math.min(0.35, (me.avatar.gunKick || 0) + g.recoil * 2.5);
+    G.shakeA = Math.max(G.shakeA || 0, g.recoil * 2);
+  }
+  function startReload() {
+    const g = GN(); if (!g || G.gunReloadT > 0 || G.gunAmmo[me.avatar.gunId] === g.mag) return;
+    G.gunReloadT = g.reload; me.avatar.gunReload = g.reload;
+    A.play('gunReload', null, 0.8, { len: g.reload });
+  }
+  function gunTick(dt) {
+    updateTracers(dt);
+    G.muzzleT = Math.max(0, (G.muzzleT || 0) - dt);
+    const g = GN();
+    if (!g) { G.gunSpin = 0; return; }
+    const id = me.avatar.gunId; if (G.gunAmmo[id] === undefined) G.gunAmmo[id] = g.mag;
+    if (G.gunReloadT > 0) { G.gunReloadT -= dt; if (G.gunReloadT <= 0) { G.gunAmmo[id] = g.mag; me.avatar.gunReload = 0; A.play('gunCock', null, 0.8); } }
+    G.gunCd = Math.max(0, (G.gunCd || 0) - dt);
+    // the barrel settles back down after each kick (so a held burst doesn't climb into the sky)
+    if (G.recoilAcc > 0) { const back = Math.min(G.recoilAcc, dt * (0.25 + G.recoilAcc * 7)); me.camPitch += back; G.recoilAcc -= back; }
+    if (G.gunAmmo[id] <= 0 && !(G.gunReloadT > 0) && G.gunCd <= 0) startReload();   // empty: reload by itself
+    const firing = held.attack && !overlayOpen() && !me.downed && !me.driving && !me.rat;
+    if (g.spin) { G.gunSpin = firing ? Math.min(g.spin + 0.2, (G.gunSpin || 0) + dt) : Math.max(0, (G.gunSpin || 0) - dt * 1.5); if (firing && G.gunSpin < g.spin && Math.random() < dt * 8) A.play('gunSpin', null, 0.5); }
+    if (firing && G.gunCd <= 0 && (g.auto || !G.gunFiredThisPress)) { G.gunFiredThisPress = true; fireGun(); }
+    me.aiming = !!(mouse.r && !overlayOpen());
+    // the hud: rounds left
+    const el = $('gunHud') || (() => { const d = document.createElement('div'); d.id = 'gunHud'; document.getElementById('hud').appendChild(d); return d; })();
+    el.innerHTML = `<b>${G.gunReloadT > 0 ? 'RELOADING' : G.gunAmmo[id]}</b><span>/ ${g.mag}</span><i>${g.name}</i>`;
+  }
+  G.gunTick = gunTick;
   function receiveDamage(dmg, src, kind) {
     if (!me || me.downed || me.dead || G.ended) return;
     if (me.god && kind !== 'admin') return;
@@ -1473,7 +1643,8 @@
   }
   function update(dt) {
     if (!me) return;
-    controlLocal(dt); tickEffects(dt); HC.Items.update(dt, G.t); clockTick(dt);
+    controlLocal(dt); tickEffects(dt); HC.Items.update(dt, G.t); clockTick(dt); gunTick(dt);
+    if (!GN() && $('gunHud')) $('gunHud').remove();
     const haste = G.bloodMoon ? 1.2 : 1;   // blood moon: the dead move 20% faster
     G.players.forEach(p => {
       if (!p.local) { const prev = p.pos.clone(); p.pos.lerp(p.netPos, 1 - Math.exp(-12 * dt)); p.vel.copy(p.pos).sub(prev).divideScalar(Math.max(dt, 1e-3)); p.yaw += HC.angDiff(p.yaw, p.netYaw) * Math.min(1, dt * 12); p.avatar.actT += dt; }
@@ -1715,7 +1886,7 @@
       if ((me.act === 'pickup' || me.act === 'interact') && dir.lengthSq() > 0) startAct('idle', 0);
       if (me.actT >= me.actDur) startAct('idle', 0);
     } else if (me.act !== 'cine') {
-      const blocking = (mouse.r || keys.KeyK) && !inputLocked && !me.rat;   // right mouse / touch Block button / K key (rats can't)
+      const blocking = (mouse.r || keys.KeyK) && !inputLocked && !me.rat && !GN();   // right mouse / touch Block button / K key (rats can't; with a gun it aims)
       // touch players sprint by pushing the stick: stop at 25 stamina so there is always enough left to attack or roll
       const sprint = keys.ShiftLeft && dir.lengthSq() > 0 && me.st > (G.touch ? 25 : 0) && !blocking;
       speed = c.speed * (blocking ? 0.45 : sprint ? 1.65 : 1) * (me.speedMul || 1) * (me.spdMul || 1);
@@ -1747,7 +1918,7 @@
     if (me.act === 'block' && me.lock) faceTarget();
     if (['draw', 'cast', 'charge', 'loose'].includes(me.act) && !me.lock) me.yaw = me.camYaw;   // keep facing the aim while strafing
     // first person: the body always faces where you look (strafing like any first-person game)
-    if (me.fp && !me.lock && me.act !== 'roll' && !me.downed) me.yaw = me.camYaw;
+    if ((me.fp || GN()) && !me.lock && me.act !== 'roll' && !me.downed) me.yaw = me.camYaw;   // (with a gun, too: you face your aim)
     me.avatar.fp = !!me.fp;
     me.avatar.speed = speed;
     me.avatar.draw = me.draw || 0; me.avatar.charge = me.charge || 0;
@@ -1835,7 +2006,10 @@
       camera.lookAt(G.fpEye.clone().add(f));
     } else {
       const target = me.pos.clone().add(new V3(0, me.rat ? 0.38 : 1.55, 0)).addScaledVector(right, me.rat ? 0.15 : 0.45);   // a rat's-eye camera sits low
-      G.camZoom = HC.damp(G.camZoom || 1, me.act === 'draw' ? 0.62 + 0.1 * (1 - me.draw) : me.rat ? 0.42 : 1, 6, dt);   // over the shoulder while drawing
+      G.camZoom = HC.damp(G.camZoom || 1, me.act === 'draw' ? 0.62 + 0.1 * (1 - me.draw) : me.rat ? 0.42 : (GN() && me.aiming) ? (GN().zoom || 0.68) : 1, 6, dt);
+      // the sniper's scope: the view narrows right in while aiming
+      const wantFov = SV().fov + (me.fp ? 10 : 0), fovNow = GN() && GN().scope && me.aiming ? 16 : wantFov;
+      if (Math.abs(camera.fov - fovNow) > 0.1) { camera.fov += (fovNow - camera.fov) * Math.min(1, dt * 10); camera.updateProjectionMatrix(); }   // over the shoulder while drawing
       const dist = (me.lock && me.lock.boss ? 4.5 + me.lock.cfg.h * 0.6 : 4.3) * G.camZoom;
       const pos = target.clone().addScaledVector(f, -dist);
       const fr = W.rayFree(target, pos); if (fr < 1) pos.lerpVectors(target, pos, Math.max(0.15, fr));
@@ -1915,7 +2089,8 @@
     G.players.forEach(p => { if (!p.lantern || p.dead) return; cands.push({ pos: p.pos.clone().add(new V3(Math.sin(p.yaw) * 0.3, 1.1, Math.cos(p.yaw) * 0.3)), color: 0xffa860, intensity: p.local ? 2.6 : 2.0, dist: p.local ? 18 : 15, flicker: 0.08, pri: p.local ? -1e6 : -1000 }); });
     W.lightSources.forEach(s => { if (s.intensity > 0) cands.push({ pos: s.pos, color: s.color, intensity: s.intensity, dist: s.dist, flicker: s.flicker, pri: 0 }); });
     if (G.activeBoss) { const b = G.bossE[G.activeBoss]; if (b.phase === 2) cands.push({ pos: b.pos.clone().setY(b.pos.y + 2.5), color: 0xff4010, intensity: 3, dist: 16, flicker: 0.3, pri: -500 }); }
-    HC.Proj.list.forEach(p => { if (p.type !== 'bolt' && p.type !== 'arrow') cands.push({ pos: p.pos, color: p.type === 'pale' ? 0x9ad0ff : 0xff6a20, intensity: 2, dist: 8, flicker: 0, pri: -200 }); });
+    HC.Proj.list.forEach(p => { if (p.type !== 'bolt' && p.type !== 'arrow' && p.type !== 'grenade') cands.push({ pos: p.pos, color: p.type === 'pale' ? 0x9ad0ff : p.type === 'plasma' ? 0x40e8ff : 0xff6a20, intensity: 2, dist: 8, flicker: 0, pri: -200 }); });
+    if (G.muzzleT > 0 && G.muzzleP) cands.push({ pos: G.muzzleP, color: 0xffc070, intensity: 4, dist: 9, flicker: 0, pri: -900 });   // muzzle flash
     const cp = camera.position;
     cands.forEach(c => c.score = c.pri + c.pos.distanceToSquared(cp)); cands.sort((a, b) => a.score - b.score);
     lightPool.forEach((l, i) => {

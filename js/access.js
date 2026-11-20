@@ -518,7 +518,12 @@
   $('lnkLogin').onclick = e => { e.preventDefault(); show('gateLogin'); $('inLogin').focus(); };
   $('btnLogin').onclick = () => moveHere($('inLogin').value, $('gateErr'), false);
   $('inLogin').onkeydown = e => { if (e.key === 'Enter') $('btnLogin').click(); };
-  let xfer = null, xferT = null;
+  // the code you made last (kept in this browser so a long-lived code can be looked up again until it runs out)
+  const XKEY = 'hc_xfer_code';
+  let xfer = (() => { try { const x = JSON.parse(localStorage.getItem(XKEY) || 'null'); return x && x.expires > Date.now() ? x : null; } catch (e) { return null; } })(), xferT = null;
+  const saveX = () => { try { if (xfer) localStorage.setItem(XKEY, JSON.stringify(xfer)); else localStorage.removeItem(XKEY); } catch (e) { } };
+  const leftText = ms => { const s = Math.max(0, Math.round(ms / 1000)), d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+    return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m}:${String(s % 60).padStart(2, '0')}`; };
   function renderAccount() {
     const p = AC.profile;
     $('acctWho').textContent = p ? `${p.name || 'No name yet'}${tagOf(p) ? ' - ' + tagOf(p).tag : ''}${O.mode === 'local' ? ' (local test mode)' : ''}` : '';
@@ -529,9 +534,9 @@
     clearInterval(xferT);
     if (live) {
       const tick = () => {
-        const s = Math.max(0, Math.round((xfer.expires - Date.now()) / 1000));
-        $('acctTimer').textContent = s ? `Type it on your other device within ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}. This device will sign out when it's used.` : 'The code ran out. Make a new one.';
-        if (!s) { xfer = null; clearInterval(xferT); renderAccount(); }
+        const ms = xfer.expires - Date.now();
+        $('acctTimer').textContent = ms > 0 ? `Works for ${leftText(ms)} more (until ${new Date(xfer.expires).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}). This device will sign out when it's used.` : 'The code ran out. Make a new one.';
+        if (ms <= 0) { xfer = null; saveX(); clearInterval(xferT); renderAccount(); }
       };
       tick(); xferT = setInterval(tick, 1000);
     } else $('acctTimer').textContent = '';
@@ -541,10 +546,10 @@
   $('acctCopy').onclick = async () => { try { await navigator.clipboard.writeText(O.fmtCode(xfer.code)); $('acctMsg').textContent = 'Copied.'; } catch (e) { $('acctMsg').textContent = 'Copy it by hand.'; } };
   $('acctMake').onclick = async () => {
     $('acctMsg').textContent = 'Making your code...';
-    try { if (xfer) O.cancelTransfer(xfer.code); xfer = await O.makeTransferCode(); $('acctMsg').textContent = ''; renderAccount(); }
+    try { if (xfer) O.cancelTransfer(xfer.code); xfer = await O.makeTransferCode(+$('acctDur').value || 10); saveX(); $('acctMsg').textContent = ''; renderAccount(); }
     catch (e) { $('acctMsg').textContent = codeErr(e); }
   };
-  $('acctCancel').onclick = () => { if (xfer) O.cancelTransfer(xfer.code); xfer = null; renderAccount(); $('acctMsg').textContent = 'Code cancelled.'; };
+  $('acctCancel').onclick = () => { if (xfer) O.cancelTransfer(xfer.code); xfer = null; saveX(); renderAccount(); $('acctMsg').textContent = 'Code cancelled.'; };
   $('acctGo').onclick = () => {
     if (AC.profile && !confirm(`This device's account (${AC.profile.name || 'no name'}) will be replaced by the one you are bringing here and deleted. Continue?`)) return;
     if (AC.maker) { $('acctMsg').textContent = 'This device holds the Maker account - move it away first (make a code here) before bringing another account in.'; return; }
